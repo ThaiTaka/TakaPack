@@ -82,4 +82,44 @@ describe("normalizeTripPlan", () => {
     expect(tasks).toContain("trước");
     expect(/gửi|báo|checklist|xác nhận/.test(tasks)).toBe(true);
   });
+
+  it("creates differentiated detailed tasks for farewell party members", () => {
+    const members = ["Khang", "Linh", "Tuấn"];
+    const normalized = normalizeTripPlan(
+      {
+        eventName: "Tiệc chia tay đồng nghiệp",
+        contextAnalysis: "Farewell",
+        assignments: [
+          {
+            assigneeName: "Khang",
+            role: "Trang trí không gian",
+            tasks: ["Chuẩn bị", "Hỗ trợ team", "Làm checklist"]
+          },
+          {
+            assigneeName: "Linh",
+            role: "Ẩm thực & Đồ uống",
+            tasks: ["Chuẩn bị", "Hỗ trợ team", "Làm checklist"]
+          },
+          {
+            assigneeName: "Tuấn",
+            role: "Nội dung chương trình",
+            tasks: ["Chuẩn bị", "Hỗ trợ team", "Làm checklist"]
+          }
+        ]
+      },
+      members,
+      "Tổ chức tiệc chia tay đồng nghiệp phòng kỹ thuật"
+    );
+
+    const khangTasks = normalized.assignments[0].tasks.join(" ").toLowerCase();
+    const linhTasks = normalized.assignments[1].tasks.join(" ").toLowerCase();
+    const tuanTasks = normalized.assignments[2].tasks.join(" ").toLowerCase();
+
+    expect(khangTasks).toMatch(/backdrop|trang trí|check-in|gallery/);
+    expect(linhTasks).toMatch(/menu|nước|buffet|món/);
+    expect(tuanTasks).toMatch(/timeline|mc|phát biểu|video/);
+
+    const allTasks = normalized.assignments.flatMap((assignment) => assignment.tasks);
+    expect(new Set(allTasks).size).toBe(allTasks.length);
+  });
 });
