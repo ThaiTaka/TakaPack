@@ -87,6 +87,20 @@ export function parseMemberNames(membersInput: string): string[] {
 export function inferContext(prompt: string): { analysis: string; roleHints: string[] } {
   const normalized = prompt.toLowerCase();
 
+  if (/(từ thiện|quyên góp|vô gia cư|phát cơm|suất ăn miễn phí|thiện nguyện)/.test(normalized)) {
+    return {
+      analysis:
+        "Sự kiện thiện nguyện phục vụ suất ăn cho người khó khăn, cần phân vai chặt giữa khâu nấu/đóng gói, hậu cần nguyên liệu, phân phối tại điểm phát và an toàn hiện trường.",
+      roleHints: [
+        "Tiếp nhận nhu cầu & điểm phát",
+        "Bếp chay & đóng hộp",
+        "Điều phối phân phát",
+        "Nguồn lực & truyền thông",
+        "An toàn hiện trường"
+      ]
+    };
+  }
+
   if (/(chia tay đồng nghiệp|tiệc chia tay|farewell|tạm biệt đồng nghiệp|offboarding)/.test(normalized)) {
     return {
       analysis:
@@ -117,15 +131,39 @@ export function inferContext(prompt: string): { analysis: string; roleHints: str
     };
   }
 
+  if (/(sinh nhật|kỷ niệm|liên hoan|party|tiệc)/.test(normalized)) {
+    return {
+      analysis:
+        `Sự kiện dạng tiệc/celebration (${prompt.slice(0, 80)}), cần tách rõ trang trí, đồ ăn thức uống, nội dung chương trình và hậu cần địa điểm để tránh chồng chéo công việc.`,
+      roleHints: ["Trang trí", "Ẩm thực", "Chương trình", "Hậu cần"]
+    };
+  }
+
+  if (/(workshop|đào tạo|hội thảo|seminar|thuyết trình)/.test(normalized)) {
+    return {
+      analysis:
+        `Sự kiện học thuật/chia sẻ kiến thức (${prompt.slice(0, 80)}), cần phân vai nội dung, truyền thông, hậu cần phòng ốc và chăm sóc người tham dự.`,
+      roleHints: ["Nội dung", "Truyền thông", "Hậu cần phòng", "Tiếp đón người tham dự"]
+    };
+  }
+
   return {
-    analysis:
-      "Chuyến đi nhóm tổng quát, cần cân bằng giữa hậu cần, ăn uống, an toàn và trải nghiệm để mọi thành viên có trách nhiệm rõ ràng.",
+    analysis: `Sự kiện "${prompt.slice(0, 120)}" có tính chất tùy biến, cần bóc tách mục tiêu, đối tượng tham gia và điều kiện thực thi để phân công nhiệm vụ cụ thể theo từng người.`,
     roleHints: ["Hậu cần", "Ẩm thực", "An toàn", "Điều phối hoạt động"]
   };
 }
 
 function buildTaskTemplateByContext(prompt: string): string[] {
   const normalized = prompt.toLowerCase();
+
+  if (/(từ thiện|quyên góp|vô gia cư|phát cơm|suất ăn miễn phí|thiện nguyện)/.test(normalized)) {
+    return [
+      "Khảo sát trước điểm phát cơm, chốt sức chứa và khung giờ phát suất trước 16:00, gửi pin map + quy định địa phương vào nhóm",
+      "Mua nguyên liệu nấu cơm chay theo định lượng tối thiểu 1 suất/người + 10% dự phòng trước 08:00 ngày nấu, gửi hóa đơn",
+      "Nấu và đóng hộp suất cơm chay theo tiêu chuẩn an toàn thực phẩm, dán nhãn giờ nấu trên từng thùng trước giờ xuất phát",
+      "Phân luồng phát suất theo hàng đợi, ưu tiên người già/yếu thế và cập nhật số suất đã phát mỗi 30 phút vào nhóm"
+    ];
+  }
 
   if (/(chia tay đồng nghiệp|tiệc chia tay|farewell|tạm biệt đồng nghiệp|offboarding)/.test(normalized)) {
     return [
@@ -165,8 +203,78 @@ function buildTaskTemplateByContext(prompt: string): string[] {
 function buildRoleTaskBank(prompt: string): Record<string, string[]> {
   const normalized = prompt.toLowerCase();
 
+  const commonRoleTaskBank: Record<string, string[]> = {
+    "Hậu cần": [
+      "Lập danh sách vật tư chi tiết theo đầu việc và chốt người nhận hàng trước 17:00, gửi bảng theo dõi trạng thái",
+      "Chuẩn bị bộ thiết bị vận hành tại chỗ (loa, dây điện, bút, bảng tên) trước giờ sự kiện 120 phút và test toàn bộ",
+      "Bố trí sơ đồ khu vực hoạt động theo luồng ra vào, dán biển chỉ dẫn và gửi ảnh hoàn thiện vào nhóm",
+      "Lập checklist đóng/mở sự kiện theo mốc giờ và bàn giao người chịu trách nhiệm từng mốc"
+    ],
+    "Ẩm thực": [
+      "Chốt thực đơn theo ngân sách và số người tham gia, đặt hàng trước 1 ngày và gửi xác nhận đơn",
+      "Kiểm soát số lượng đồ ăn/đồ uống theo từng khung giờ, cập nhật tồn kho định kỳ 60 phút/lần",
+      "Chuẩn bị phương án dị ứng thực phẩm (món thay thế + nhãn cảnh báo), dán nhãn trước giờ bắt đầu",
+      "Thu thập và lưu hóa đơn mua thực phẩm, bàn giao bảng chi phí cuối buổi cho trưởng nhóm"
+    ],
+    "An toàn": [
+      "Chuẩn bị túi sơ cứu gồm thuốc cơ bản, băng gạc, dung dịch sát khuẩn và kiểm tra hạn sử dụng trước khi đi",
+      "Đánh giá rủi ro địa điểm (thời tiết, giao thông, điện nước), gửi bản cảnh báo ngắn trước giờ tập trung",
+      "Phân công 1 đầu mối xử lý sự cố và phổ biến quy trình liên lạc khẩn cấp cho nhóm trước sự kiện",
+      "Theo dõi tình trạng an toàn trong suốt sự kiện và gửi tổng kết sự cố nếu có sau khi kết thúc"
+    ],
+    "Điều phối hoạt động": [
+      "Soạn timeline vận hành chi tiết theo mốc giờ và gửi bản chốt trước 20:00 hôm trước",
+      "Phân công đầu việc từng người theo năng lực, chốt người backup cho mỗi hạng mục chính",
+      "Theo dõi tiến độ thực tế so với timeline, cập nhật trạng thái vào nhóm mỗi 60 phút",
+      "Tổng hợp kết quả sau sự kiện gồm việc hoàn thành/chưa hoàn thành và đề xuất cải thiện"
+    ],
+    "Điều phối": [
+      "Soạn lịch triển khai theo giờ và giao việc rõ người chịu trách nhiệm trước ngày tổ chức",
+      "Điều hành briefing 15 phút trước giờ bắt đầu để chốt phân vai lần cuối",
+      "Theo dõi điểm nghẽn tại hiện trường và điều chỉnh nhân sự theo thời gian thực",
+      "Tổng hợp biên bản kết thúc và gửi nhóm ngay sau khi thu dọn"
+    ]
+  };
+
+  if (/(từ thiện|quyên góp|vô gia cư|phát cơm|suất ăn miễn phí|thiện nguyện)/.test(normalized)) {
+    return {
+      ...commonRoleTaskBank,
+      "Tiếp nhận nhu cầu & điểm phát": [
+        "Khảo sát 2 điểm phát tiềm năng, chốt vị trí cuối cùng trước 16:00 và gửi pin map kèm phương án đỗ xe",
+        "Làm việc với đại diện địa phương để thống nhất khung giờ phát suất, lưu lại xác nhận bằng tin nhắn",
+        "Ước tính số người nhận suất theo khung giờ cao điểm/thấp điểm và gửi bảng dự báo cho nhóm bếp",
+        "Chuẩn bị biển thông báo và sơ đồ xếp hàng tại điểm phát trước giờ bắt đầu 45 phút"
+      ],
+      "Bếp chay & đóng hộp": [
+        "Chốt menu cơm chay gồm món chính + rau + canh, tính định lượng cho tổng suất + 10% dự phòng trước 08:00",
+        "Mua nguyên liệu tươi theo danh sách đã duyệt, kiểm tra chất lượng đầu vào và chụp hóa đơn gửi nhóm",
+        "Tổ chức nấu theo dây chuyền và kiểm soát vệ sinh bếp, hoàn tất đóng hộp trước giờ xuất phát 60 phút",
+        "Dán nhãn từng thùng theo loại món và giờ nấu, bàn giao biên bản số lượng cho đội phân phát"
+      ],
+      "Điều phối phân phát": [
+        "Thiết kế luồng xếp hàng 1 chiều tại điểm phát, phân công 2 người hướng dẫn và 1 người kiểm đếm",
+        "Phát suất theo thứ tự ưu tiên (người già, phụ nữ có con nhỏ), cập nhật số lượng mỗi 30 phút",
+        "Chuẩn bị phương án dự phòng khi phát sinh đông người (chia line A/B) và kích hoạt khi cần",
+        "Chốt số suất đã phát/thừa ngay tại hiện trường và gửi báo cáo tóm tắt trước khi rời điểm phát"
+      ],
+      "Nguồn lực & truyền thông": [
+        "Đăng bài kêu gọi nguồn lực đúng thông điệp thiện nguyện, chốt hạn nhận đóng góp trước ngày tổ chức",
+        "Theo dõi danh sách ủng hộ tiền/hiện vật, cập nhật minh bạch vào bảng công khai cho nhóm",
+        "Ghi nhận hình ảnh hoạt động đúng quy tắc tôn trọng người nhận hỗ trợ, chọn ảnh phù hợp để tổng hợp",
+        "Viết báo cáo sau chương trình gồm tổng đóng góp, tổng suất phát và bài học cải tiến cho đợt sau"
+      ],
+      "An toàn hiện trường": [
+        "Chuẩn bị bộ sơ cứu lưu động, nước rửa tay và găng tay dùng một lần trước giờ tập trung 30 phút",
+        "Kiểm tra rủi ro khu vực phát (giao thông, mưa, chen lấn), triển khai giải pháp giảm rủi ro trước khi bắt đầu",
+        "Giám sát an toàn trong quá trình phát suất và xử lý tình huống phát sinh theo quy trình đã chốt",
+        "Tổng kết sự cố/an toàn cuối chương trình và gửi khuyến nghị cải thiện cho lần tổ chức tiếp theo"
+      ]
+    };
+  }
+
   if (/(chia tay đồng nghiệp|tiệc chia tay|farewell|tạm biệt đồng nghiệp|offboarding)/.test(normalized)) {
     return {
+      ...commonRoleTaskBank,
       "Trang trí không gian": [
         "Dựng concept trang trí theo tông màu công ty, in backdrop 2.5m và hoàn tất setup trước giờ khai tiệc 90 phút",
         "Chuẩn bị bóng bay chữ + dây đèn + standee ảnh kỷ niệm, kiểm tra độ chắc chắn và chụp ảnh hiện trường sau setup",
@@ -200,7 +308,7 @@ function buildRoleTaskBank(prompt: string): Record<string, string[]> {
     };
   }
 
-  return {};
+  return commonRoleTaskBank;
 }
 
 function enforceThreeToFourTasks(tasks: string[], fallbackPool: string[]): string[] {
@@ -315,7 +423,8 @@ function enforceDetailedDistinctTasks(
 
 export function normalizeTripPlan(object: TripPlan, memberNames: string[], prompt: string): TripPlan {
   const fallbackTasks = buildTaskTemplateByContext(prompt);
-  const roleHints = inferContext(prompt).roleHints;
+  const inferredContext = inferContext(prompt);
+  const roleHints = inferredContext.roleHints;
   const usedTaskSet = new Set<string>();
 
   const assignmentByName = new Map(
@@ -342,7 +451,13 @@ export function normalizeTripPlan(object: TripPlan, memberNames: string[], promp
 
   return {
     eventName: object.eventName.trim() || "Kế hoạch chuyến đi nhóm",
-    contextAnalysis: object.contextAnalysis.trim() || inferContext(prompt).analysis,
+    contextAnalysis:
+      !object.contextAnalysis.trim() ||
+      /chuyến đi nhóm tổng quát|cân bằng giữa hậu cần, ăn uống, an toàn/i.test(
+        object.contextAnalysis
+      )
+        ? inferredContext.analysis
+        : object.contextAnalysis.trim(),
     assignments
   };
 }

@@ -122,4 +122,24 @@ describe("normalizeTripPlan", () => {
     const allTasks = normalized.assignments.flatMap((assignment) => assignment.tasks);
     expect(new Set(allTasks).size).toBe(allTasks.length);
   });
+
+  it("uses charity-specific context analysis instead of generic fallback", () => {
+    const members = ["Thái", "Khang", "Danh"];
+    const plan = buildMockTripPlan("làm 1 bữa từ thiện cơm chay cho người vô gia cư", members);
+
+    expect(plan.contextAnalysis.toLowerCase()).toContain("thiện nguyện");
+    expect(plan.contextAnalysis.toLowerCase()).toContain("người khó khăn");
+    expect(plan.contextAnalysis.toLowerCase()).not.toContain("chuyến đi nhóm tổng quát");
+  });
+
+  it("avoids repeated generic tasks for random event prompts", () => {
+    const members = ["An", "Bình", "Chi"];
+    const plan = buildMockTripPlan("Tổ chức workshop kỹ năng giao tiếp cho sinh viên năm nhất", members);
+
+    const allTasks = plan.assignments.flatMap((assignment) => assignment.tasks);
+    expect(new Set(allTasks).size).toBe(allTasks.length);
+
+    const joinedTasks = allTasks.join(" ").toLowerCase();
+    expect(joinedTasks).not.toMatch(/chuẩn bị checklist đồ cá nhân|xác nhận phương án di chuyển/);
+  });
 });
