@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { TripPlan } from "@/app/types";
 import AssignmentCard from "@/components/AssignmentCard";
+import { trackClientEvent } from "@/lib/analytics";
 
 const STORAGE_KEYS = {
   prompt: "takapack.prompt",
@@ -92,6 +93,13 @@ export default function TripPlanner() {
   useEffect(() => {
     if (!isLoading && streamedObject && isCompletePlan(streamedObject)) {
       setPlan(streamedObject);
+      trackClientEvent({
+        eventName: "plan_generated",
+        metadata: {
+          assignments: streamedObject.assignments.length,
+          eventName: streamedObject.eventName
+        }
+      });
     }
   }, [isLoading, streamedObject]);
 
@@ -235,6 +243,12 @@ export default function TripPlanner() {
     setError(null);
     setPlan(null);
     setCompletedTasks({});
+    trackClientEvent({
+      eventName: "plan_submit",
+      metadata: {
+        memberCount: memberNamesInput.split(",").map((item) => item.trim()).filter(Boolean).length
+      }
+    });
     submit({ prompt, memberNamesInput });
   };
 
@@ -257,6 +271,8 @@ export default function TripPlanner() {
     localStorage.removeItem(STORAGE_KEYS.members);
     localStorage.removeItem(STORAGE_KEYS.plan);
     localStorage.removeItem(STORAGE_KEYS.completed);
+
+    trackClientEvent({ eventName: "planner_reset" });
   };
 
   const handleExportJson = () => {
@@ -280,6 +296,14 @@ export default function TripPlanner() {
     anchor.download = "takapack-trip-plan.json";
     anchor.click();
     URL.revokeObjectURL(url);
+
+    trackClientEvent({
+      eventName: "plan_export_json",
+      metadata: {
+        completionPercent,
+        assignmentCount: plan.assignments.length
+      }
+    });
   };
 
   return (

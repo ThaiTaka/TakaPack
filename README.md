@@ -18,6 +18,20 @@ npm run dev
 
 Mở `http://localhost:3000`.
 
+## Chạy test
+
+```bash
+npm test
+```
+
+## Chạy bằng Docker
+
+```bash
+docker compose up --build
+```
+
+App chạy tại `http://localhost:3000`.
+
 ## Luồng sử dụng
 
 - Nhập mô tả kế hoạch chuyến đi.
@@ -41,6 +55,8 @@ AI (hoặc mock fallback) trả về:
 - Checklist task có tiến độ hoàn thành theo phần trăm
 - Nút Export JSON để tải kế hoạch về máy
 - Preset prompt nhanh để demo/test nhiều bối cảnh
+- API analytics nhẹ để track các event chính (submit, export, reset)
+- Docker hardening: `output: standalone`, image production tối ưu
 
 ## Biến môi trường (tùy chọn)
 
