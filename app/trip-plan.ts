@@ -667,6 +667,21 @@ function isGenericTask(task: string): boolean {
   return /checklist|phương án|phân chia|xác nhận|hỗ trợ|chuẩn bị đồ|kiểm tra hạng mục/.test(normalized);
 }
 
+function createTaskFingerprint(task: string): string {
+  const normalized = task
+    .toLowerCase()
+    .replace(/\(đầu mối:\s*[^)]+\)/gi, "")
+    .replace(/phần việc độc quyền của\s*[^:]+:/gi, "")
+    .replace(/;\s*bổ sung tiêu chí nghiệm thu[\s\S]*$/i, "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return normalized;
+}
+
 function buildRoleSpecificTasks(
   role: string,
   prompt: string,
@@ -749,15 +764,17 @@ function enforceDetailedDistinctTasks(
 
   const pushUniqueTask = (candidate: string) => {
     const normalized = candidate.trim();
+    const fingerprint = createTaskFingerprint(normalized);
+
     if (!normalized) {
       return false;
     }
 
-    if (usedTaskSet.has(normalized)) {
+    if (!fingerprint || usedTaskSet.has(fingerprint)) {
       return false;
     }
 
-    usedTaskSet.add(normalized);
+    usedTaskSet.add(fingerprint);
     finalTasks.push(normalized);
     return true;
   };
@@ -780,17 +797,24 @@ function enforceDetailedDistinctTasks(
     poolCursor += 1;
   }
 
-  while (finalTasks.length < desiredTaskCount) {
+  let safetyCounter = 0;
+  while (finalTasks.length < desiredTaskCount && safetyCounter < roleDetailedPool.length * 6) {
     const fallbackTask = roleDetailedPool[poolCursor % roleDetailedPool.length];
     const detailedFallbackTask =
       planningMode === "complex" ? addComplexDetail(fallbackTask, assigneeName, role) : fallbackTask;
-    const uniqueVariant = `${detailedFallbackTask} (đầu mối: ${assigneeName})`;
+    const uniqueVariant = `Phần việc độc quyền của ${assigneeName}: ${detailedFallbackTask}`;
 
     if (!pushUniqueTask(detailedFallbackTask)) {
       pushUniqueTask(uniqueVariant);
     }
 
     poolCursor += 1;
+    safetyCounter += 1;
+  }
+
+  while (finalTasks.length < desiredTaskCount) {
+    const forcedUniqueTask = `Phụ trách hạng mục chuyên biệt ${finalTasks.length + 1} cho vai trò ${role}: chốt đầu ra riêng, deadline riêng và biên bản bàn giao bởi ${assigneeName}`;
+    pushUniqueTask(forcedUniqueTask);
   }
 
   return finalTasks;

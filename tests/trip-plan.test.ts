@@ -54,6 +54,19 @@ describe("createTripPlanSchemaForMembers", () => {
 });
 
 describe("normalizeTripPlan", () => {
+  function fingerprintTask(task: string): string {
+    return task
+      .toLowerCase()
+      .replace(/\(đầu mối:\s*[^)]+\)/gi, "")
+      .replace(/phần việc độc quyền của\s*[^:]+:/gi, "")
+      .replace(/;\s*bổ sung tiêu chí nghiệm thu[\s\S]*$/i, "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   it("guarantees each member has 3-4 tasks", () => {
     const members = ["Taka", "Nhi"];
     const source = buildMockTripPlan("Cắm trại rừng", members);
@@ -203,5 +216,37 @@ describe("normalizeTripPlan", () => {
 
     const joinedTasks = plan.assignments.flatMap((assignment) => assignment.tasks).join(" ").toLowerCase();
     expect(joinedTasks).toContain("tiêu chí nghiệm thu");
+  });
+
+  it("removes semantically duplicated tasks across members", () => {
+    const members = ["Taka", "Nhi", "Nam"];
+    const duplicatedTasks = [
+      "Lập danh sách nguyên liệu chi tiết theo món và đặt mua trước 17:00, gửi hóa đơn dự kiến cho nhóm",
+      "Setup khu vực ăn uống gồm bàn ghế, đèn dây và loa mini trước giờ đón khách 90 phút, gửi ảnh hoàn thiện",
+      "Sơ chế thịt/rau theo khẩu phần từng người trước 16:00, dán nhãn từng hộp để tránh nhầm",
+      "Chuẩn bị bộ dụng cụ dọn dẹp sau tiệc (bao rác, găng tay, khăn lau) và bàn giao checklist cuối buổi"
+    ];
+
+    const plan = normalizeTripPlan(
+      {
+        eventName: "Tiệc tại nhà",
+        contextAnalysis: "",
+        assignments: members.map((name) => ({
+          assigneeName: name,
+          role: "Setup không gian",
+          tasks: duplicatedTasks
+        }))
+      },
+      members,
+      "Làm bữa tiệc ăn hải sản tại nhà",
+      "home-party",
+      "complex"
+    );
+
+    const taskFingerprints = plan.assignments.flatMap((assignment) =>
+      assignment.tasks.map((task) => fingerprintTask(task))
+    );
+
+    expect(new Set(taskFingerprints).size).toBe(taskFingerprints.length);
   });
 });
