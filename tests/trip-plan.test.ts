@@ -22,6 +22,7 @@ describe("createTripPlanSchemaForMembers", () => {
     const parsed = schema.safeParse({
       eventName: "Test",
       contextAnalysis: "Context",
+      planningMode: "normal",
       detectedEventType: "charity",
       assignments: [
         {
@@ -37,6 +38,7 @@ describe("createTripPlanSchemaForMembers", () => {
     const invalid = schema.safeParse({
       eventName: "Test",
       contextAnalysis: "Context",
+      planningMode: "normal",
       detectedEventType: "charity",
       assignments: [
         {
@@ -161,5 +163,45 @@ describe("normalizeTripPlan", () => {
   it("respects manual override context kind", () => {
     const kind = resolveContextKind("Tổ chức workshop kỹ năng mềm", "charity");
     expect(kind).toBe("charity");
+  });
+
+  it("supports simple mode with shorter task lists", () => {
+    const members = ["Minh", "Hà", "Dũng", "Thư"];
+    const plan = buildMockTripPlan("Tổ chức tiệc sinh nhật tại nhà", members, "auto", "simple");
+
+    expect(plan.planningMode).toBe("simple");
+    const counts = plan.assignments.map((assignment) => assignment.tasks.length);
+    expect(Math.min(...counts)).toBeGreaterThanOrEqual(2);
+    expect(Math.max(...counts)).toBeLessThanOrEqual(3);
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+  });
+
+  it("supports complex mode with highly detailed and balanced tasks", () => {
+    const members = ["An", "Bình", "Chi", "Duy", "Em"];
+    const plan = normalizeTripPlan(
+      {
+        eventName: "Workshop nội bộ",
+        contextAnalysis: "",
+        assignments: members.map((name) => ({
+          assigneeName: name,
+          role: "Nội dung",
+          tasks: ["Chuẩn bị", "Hỗ trợ"]
+        }))
+      },
+      members,
+      "Tổ chức workshop kỹ năng thuyết trình",
+      "auto",
+      "complex"
+    );
+
+    expect(plan.planningMode).toBe("complex");
+
+    const counts = plan.assignments.map((assignment) => assignment.tasks.length);
+    expect(Math.min(...counts)).toBeGreaterThanOrEqual(5);
+    expect(Math.max(...counts)).toBeLessThanOrEqual(6);
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+
+    const joinedTasks = plan.assignments.flatMap((assignment) => assignment.tasks).join(" ").toLowerCase();
+    expect(joinedTasks).toContain("tiêu chí nghiệm thu");
   });
 });

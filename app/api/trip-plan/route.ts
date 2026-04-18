@@ -6,6 +6,7 @@ import {
   buildTripPlannerPrompt,
   buildMockTripPlan,
   type ContextOverride,
+  type PlanningMode,
   createTripPlanSchemaForMembers,
   parseMemberNames,
   resolveContextKind,
@@ -18,12 +19,15 @@ const contextOverrideSchema = z
   .enum(["auto", "charity", "farewell", "home-party", "outdoor", "celebration", "workshop", "community", "generic"])
   .optional();
 
+const planningModeSchema = z.enum(["simple", "normal", "complex"]).optional();
+
 export async function POST(request: Request) {
   try {
     let body: {
       prompt?: string;
       memberNamesInput?: string;
       overrideContextKind?: string;
+      planningMode?: string;
     };
 
     try {
@@ -31,6 +35,7 @@ export async function POST(request: Request) {
         prompt?: string;
         memberNamesInput?: string;
         overrideContextKind?: string;
+        planningMode?: string;
       };
     } catch {
       return NextResponse.json(
@@ -46,7 +51,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "overrideContextKind không hợp lệ." }, { status: 400 });
     }
 
+    const planningModeParsed = planningModeSchema.safeParse(body.planningMode);
+    if (!planningModeParsed.success) {
+      return NextResponse.json({ error: "planningMode không hợp lệ." }, { status: 400 });
+    }
+
     const overrideContextKind = overrideContextKindParsed.data as ContextOverride;
+    const planningMode = (planningModeParsed.data ?? "normal") as PlanningMode;
     const memberNames = parseMemberNames(memberNamesInput);
 
     if (!prompt) {
@@ -61,17 +72,23 @@ export async function POST(request: Request) {
     }
 
     if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(buildMockTripPlan(prompt, memberNames, overrideContextKind));
+      return NextResponse.json(
+        buildMockTripPlan(prompt, memberNames, overrideContextKind, planningMode)
+      );
     }
 
     const resolvedContextKind = resolveContextKind(prompt, overrideContextKind);
-    const runtimeSchema = createTripPlanSchemaForMembers(memberNames, resolvedContextKind);
+    const runtimeSchema = createTripPlanSchemaForMembers(
+      memberNames,
+      resolvedContextKind,
+      planningMode
+    );
 
     const result = streamObject({
       model: openai(process.env.OPENAI_MODEL ?? "gpt-4o-mini"),
       schema: runtimeSchema,
       system: TRIP_PLANNER_SYSTEM_PROMPT,
-      prompt: buildTripPlannerPrompt(prompt, memberNames, overrideContextKind)
+      prompt: buildTripPlannerPrompt(prompt, memberNames, overrideContextKind, planningMode)
     });
 
     return result.toTextStreamResponse();

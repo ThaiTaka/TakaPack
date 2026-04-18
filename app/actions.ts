@@ -13,7 +13,8 @@ export async function generateTripTasks(
     | "celebration"
     | "workshop"
     | "community"
-    | "generic"
+    | "generic",
+  planningMode?: "simple" | "normal" | "complex"
 ) {
-  return generateTripTasksInternal(prompt, memberNamesInput, overrideContextKind);
+  return generateTripTasksInternal(prompt, memberNamesInput, overrideContextKind, planningMode);
 }

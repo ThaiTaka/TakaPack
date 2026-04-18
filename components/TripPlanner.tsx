@@ -9,6 +9,7 @@ import {
   Download,
   Loader2,
   RotateCcw,
+  Shuffle,
   Sparkles,
   Users
 } from "lucide-react";
@@ -20,6 +21,7 @@ const STORAGE_KEYS = {
   prompt: "takapack.prompt",
   members: "takapack.members",
   contextOverride: "takapack.contextOverride",
+  planningMode: "takapack.planningMode",
   plan: "takapack.plan",
   completed: "takapack.completed"
 } as const;
@@ -40,6 +42,16 @@ const CONTEXT_LABEL_MAP = Object.fromEntries(
   CONTEXT_OVERRIDE_OPTIONS.map((option) => [option.value, option.label])
 ) as Record<string, string>;
 
+const PLANNING_MODE_OPTIONS = [
+  { value: "simple", label: "Đơn giản" },
+  { value: "normal", label: "Bình thường" },
+  { value: "complex", label: "Phức tạp (chi tiết cao)" }
+] as const;
+
+const PLANNING_MODE_LABEL_MAP = Object.fromEntries(
+  PLANNING_MODE_OPTIONS.map((option) => [option.value, option.label])
+) as Record<string, string>;
+
 const PROMPT_PRESETS = [
   "BBQ tại nhà tối thứ 7, 8 người, cần setup sân thượng và dọn dẹp nhanh",
   "Cắm trại rừng thông 2 ngày 1 đêm, có trekking nhẹ và nấu ăn ngoài trời",
@@ -50,14 +62,45 @@ const tripPlanSchema = z.object({
   eventName: z.string(),
   contextAnalysis: z.string(),
   detectedEventType: z.string().optional(),
+  planningMode: z.enum(["simple", "normal", "complex"]).optional(),
   assignments: z.array(
     z.object({
       assigneeName: z.string(),
       role: z.string(),
-      tasks: z.array(z.string()).min(3).max(4)
+      tasks: z.array(z.string()).min(2).max(6)
     })
   )
 });
+
+function shuffleArray<T>(items: T[]): T[] {
+  const next = [...items];
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [next[index], next[randomIndex]] = [next[randomIndex], next[index]];
+  }
+  return next;
+}
+
+function randomSwapAssignments(plan: TripPlan): TripPlan {
+  const allTasks = shuffleArray(plan.assignments.flatMap((assignment) => assignment.tasks));
+  let cursor = 0;
+
+  const assignments = plan.assignments.map((assignment) => {
+    const taskCount = assignment.tasks.length;
+    const reassignedTasks = allTasks.slice(cursor, cursor + taskCount);
+    cursor += taskCount;
+
+    return {
+      ...assignment,
+      tasks: reassignedTasks
+    };
+  });
+
+  return {
+    ...plan,
+    assignments
+  };
+}
 
 function isCompletePlan(value: unknown): value is TripPlan {
   const parsed = tripPlanSchema.safeParse(value);
@@ -95,6 +138,7 @@ export default function TripPlanner() {
   const [prompt, setPrompt] = useState("");
   const [memberNamesInput, setMemberNamesInput] = useState("Taka, Nhi, Nam, Huy");
   const [contextOverride, setContextOverride] = useState<(typeof CONTEXT_OVERRIDE_OPTIONS)[number]["value"]>("auto");
+  const [planningMode, setPlanningMode] = useState<(typeof PLANNING_MODE_OPTIONS)[number]["value"]>("normal");
   const [plan, setPlan] = useState<TripPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [completedTasks, setCompletedTasks] = useState<Record<string, boolean>>({});
@@ -116,17 +160,19 @@ export default function TripPlanner() {
         eventName: "plan_generated",
         metadata: {
           assignments: streamedObject.assignments.length,
-          eventName: streamedObject.eventName
+          eventName: streamedObject.eventName,
+          planningMode: streamedObject.planningMode ?? planningMode
         }
       });
     }
-  }, [isLoading, streamedObject]);
+  }, [isLoading, streamedObject, planningMode]);
 
   useEffect(() => {
     try {
       const storedPrompt = localStorage.getItem(STORAGE_KEYS.prompt);
       const storedMembers = localStorage.getItem(STORAGE_KEYS.members);
       const storedContextOverride = localStorage.getItem(STORAGE_KEYS.contextOverride);
+      const storedPlanningMode = localStorage.getItem(STORAGE_KEYS.planningMode);
       const storedPlan = localStorage.getItem(STORAGE_KEYS.plan);
       const storedCompleted = localStorage.getItem(STORAGE_KEYS.completed);
 
@@ -143,6 +189,13 @@ export default function TripPlanner() {
         CONTEXT_OVERRIDE_OPTIONS.some((option) => option.value === storedContextOverride)
       ) {
         setContextOverride(storedContextOverride as (typeof CONTEXT_OVERRIDE_OPTIONS)[number]["value"]);
+      }
+
+      if (
+        storedPlanningMode &&
+        PLANNING_MODE_OPTIONS.some((option) => option.value === storedPlanningMode)
+      ) {
+        setPlanningMode(storedPlanningMode as (typeof PLANNING_MODE_OPTIONS)[number]["value"]);
       }
 
       if (storedPlan) {
@@ -173,6 +226,10 @@ export default function TripPlanner() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.contextOverride, contextOverride);
   }, [contextOverride]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.planningMode, planningMode);
+  }, [planningMode]);
 
   useEffect(() => {
     if (!plan) {
@@ -278,10 +335,11 @@ export default function TripPlanner() {
       eventName: "plan_submit",
       metadata: {
         memberCount: memberNamesInput.split(",").map((item) => item.trim()).filter(Boolean).length,
-        contextOverride
+        contextOverride,
+        planningMode
       }
     });
-    submit({ prompt, memberNamesInput, overrideContextKind: contextOverride });
+    submit({ prompt, memberNamesInput, overrideContextKind: contextOverride, planningMode });
   };
 
   const handleToggleTask = (assigneeName: string, taskIndex: number) => {
@@ -295,6 +353,7 @@ export default function TripPlanner() {
   const handleResetAll = () => {
     setPrompt("");
     setMemberNamesInput("");
+    setPlanningMode("normal");
     setPlan(null);
     setCompletedTasks({});
     setError(null);
@@ -302,6 +361,7 @@ export default function TripPlanner() {
     localStorage.removeItem(STORAGE_KEYS.prompt);
     localStorage.removeItem(STORAGE_KEYS.members);
     localStorage.removeItem(STORAGE_KEYS.contextOverride);
+    localStorage.removeItem(STORAGE_KEYS.planningMode);
     localStorage.removeItem(STORAGE_KEYS.plan);
     localStorage.removeItem(STORAGE_KEYS.completed);
 
@@ -337,6 +397,25 @@ export default function TripPlanner() {
         assignmentCount: plan.assignments.length
       }
     });
+  };
+
+  const handleRandomSwapTasks = () => {
+    setPlan((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const swapped = randomSwapAssignments(current);
+      trackClientEvent({
+        eventName: "plan_random_swap",
+        metadata: {
+          assignmentCount: swapped.assignments.length,
+          planningMode: swapped.planningMode ?? planningMode
+        }
+      });
+      return swapped;
+    });
+    setCompletedTasks({});
   };
 
   return (
@@ -408,6 +487,26 @@ export default function TripPlanner() {
             </select>
           </div>
 
+          <div className="space-y-2">
+            <label htmlFor="planning-mode" className="block text-sm font-medium text-slate-200">
+              Độ chi tiết kế hoạch
+            </label>
+            <select
+              id="planning-mode"
+              value={planningMode}
+              onChange={(event) =>
+                setPlanningMode(event.target.value as (typeof PLANNING_MODE_OPTIONS)[number]["value"])
+              }
+              className="w-full rounded-xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-100 focus:border-cyan-400"
+            >
+              {PLANNING_MODE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value} className="bg-slate-900 text-slate-100">
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex flex-wrap gap-2">
             <button
               type="submit"
@@ -435,6 +534,16 @@ export default function TripPlanner() {
             >
               <RotateCcw className="h-4 w-4" />
               Reset
+            </button>
+
+            <button
+              type="button"
+              onClick={handleRandomSwapTasks}
+              disabled={!plan}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:border-amber-400/40 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Shuffle className="h-4 w-4" />
+              Tráo việc random
             </button>
           </div>
         </div>
@@ -466,6 +575,9 @@ export default function TripPlanner() {
             </div>
             <div className="mt-2 inline-flex items-center rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-200">
               Event Type: {CONTEXT_LABEL_MAP[displayPlan.detectedEventType ?? "auto"] ?? (displayPlan.detectedEventType ?? "auto")}
+            </div>
+            <div className="ml-2 mt-2 inline-flex items-center rounded-full border border-violet-400/30 bg-violet-400/10 px-3 py-1 text-xs text-violet-200">
+              Mode: {PLANNING_MODE_LABEL_MAP[displayPlan.planningMode ?? planningMode] ?? (displayPlan.planningMode ?? planningMode)}
             </div>
             <p className="mt-2 text-sm text-slate-300">{displayPlan.contextAnalysis}</p>
 

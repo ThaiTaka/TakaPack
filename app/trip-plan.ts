@@ -14,6 +14,7 @@ export type ContextKind =
   | "generic";
 
 export type ContextOverride = ContextKind | "auto" | undefined;
+export type PlanningMode = "simple" | "normal" | "complex";
 
 const CONTEXT_KIND_VALUES = [
   "charity",
@@ -26,11 +27,76 @@ const CONTEXT_KIND_VALUES = [
   "generic"
 ] as const;
 
+const PLANNING_MODE_VALUES = ["simple", "normal", "complex"] as const;
+
+type TaskRange = {
+  min: number;
+  max: number;
+  defaultCount: number;
+};
+
+function getTaskRangeByMode(planningMode: PlanningMode): TaskRange {
+  if (planningMode === "simple") {
+    return { min: 2, max: 3, defaultCount: 2 };
+  }
+
+  if (planningMode === "complex") {
+    return { min: 5, max: 6, defaultCount: 5 };
+  }
+
+  return { min: 3, max: 4, defaultCount: 3 };
+}
+
+function buildBalancedTaskTargets(memberCount: number, planningMode: PlanningMode): number[] {
+  if (memberCount <= 0) {
+    return [];
+  }
+
+  const taskRange = getTaskRangeByMode(planningMode);
+  const targets = Array(memberCount).fill(taskRange.min);
+
+  if (taskRange.max === taskRange.min) {
+    return targets;
+  }
+
+  const extraSlotsByMode: Record<PlanningMode, number> = {
+    simple: Math.floor(memberCount / 2),
+    normal: Math.floor(memberCount / 2),
+    complex: Math.ceil(memberCount * 0.6)
+  };
+
+  let remaining = Math.min(extraSlotsByMode[planningMode], memberCount);
+  let cursor = 0;
+
+  while (remaining > 0) {
+    const index = cursor % memberCount;
+    if (targets[index] < taskRange.max) {
+      targets[index] += 1;
+      remaining -= 1;
+    }
+    cursor += 1;
+  }
+
+  return targets;
+}
+
+function getDetailGuardrail(planningMode: PlanningMode): string {
+  if (planningMode === "simple") {
+    return "Mỗi task cần ngắn gọn, rõ việc, có mốc thời gian hoặc đầu ra; tránh dư thừa.";
+  }
+
+  if (planningMode === "complex") {
+    return "Mỗi task phải cực kỳ chi tiết: bước hành động rõ, số lượng/vật tư cụ thể, deadline, tiêu chí bàn giao và điểm kiểm soát rủi ro.";
+  }
+
+  return "Mỗi task phải rõ hành động, hạng mục và mốc bàn giao đo được.";
+}
+
 const assignmentSchema = z
   .object({
     assigneeName: z.string().min(1),
     role: z.string().min(1),
-    tasks: z.array(z.string().min(1)).min(3).max(4)
+    tasks: z.array(z.string().min(1)).min(2).max(6)
   })
   .strict();
 
@@ -38,14 +104,17 @@ export const tripPlanSchema = z.object({
   eventName: z.string().min(1),
   contextAnalysis: z.string().min(1),
   detectedEventType: z.string().min(1).optional(),
+  planningMode: z.enum(PLANNING_MODE_VALUES).optional(),
   assignments: z.array(assignmentSchema).min(1).max(20)
 }).strict();
 
 export function createTripPlanSchemaForMembers(
   memberNames: string[],
-  resolvedContextKind?: ContextKind
+  resolvedContextKind?: ContextKind,
+  planningMode: PlanningMode = "normal"
 ) {
   const allowedAssignees = z.enum(memberNames as [string, ...string[]]);
+  const taskRange = getTaskRangeByMode(planningMode);
   const detectedEventTypeSchema = resolvedContextKind
     ? z.literal(resolvedContextKind)
     : z.enum(CONTEXT_KIND_VALUES);
@@ -54,6 +123,7 @@ export function createTripPlanSchemaForMembers(
     .object({
       eventName: z.string().min(1),
       contextAnalysis: z.string().min(1),
+      planningMode: z.literal(planningMode),
       detectedEventType: detectedEventTypeSchema,
       assignments: z
         .array(
@@ -61,7 +131,7 @@ export function createTripPlanSchemaForMembers(
             .object({
               assigneeName: allowedAssignees,
               role: z.string().min(1),
-              tasks: z.array(z.string().min(1)).min(3).max(4)
+              tasks: z.array(z.string().min(1)).min(taskRange.min).max(taskRange.max)
             })
             .strict()
         )
@@ -75,7 +145,7 @@ export const TRIP_PLANNER_SYSTEM_PROMPT = [
   "Bạn là chuyên gia điều phối chuyến đi nhóm và logistics thực địa.",
   "Bắt buộc phân tích ngữ cảnh sự kiện trước khi chia việc (ví dụ: tại nhà thì không có lều trại/đi rừng; đi rừng phải có an toàn, y tế, định hướng, sinh tồn).",
   "Chỉ phân công đúng cho danh sách thành viên được cung cấp, không thêm người mới.",
-  "Mỗi thành viên phải có vai trò riêng và CHÍNH XÁC 3-4 tasks chi tiết, KHÔNG trùng nhiệm vụ chính giữa các thành viên.",
+  "Mỗi thành viên phải có vai trò riêng và số task phải tuân thủ planningMode (simple: 2-3, normal: 3-4, complex: 5-6), KHÔNG trùng nhiệm vụ chính giữa các thành viên.",
   "Mỗi task bắt buộc chứa: (1) hành động cụ thể, (2) hạng mục/vật dụng cụ thể, (3) mốc thời gian hoặc kết quả bàn giao đo được.",
   "Không dùng task chung chung kiểu 'chuẩn bị checklist', 'phân chia', 'xác nhận phương án', 'hỗ trợ team'.",
   "Nếu là tiệc chia tay đồng nghiệp: phải tách rõ nhóm trang trí, đồ ăn/đồ uống, nội dung chương trình, quà/kỷ niệm và hậu cần hiện trường.",
@@ -85,15 +155,20 @@ export const TRIP_PLANNER_SYSTEM_PROMPT = [
 export function buildTripPlannerPrompt(
   prompt: string,
   memberNames: string[],
-  overrideContextKind: ContextOverride = "auto"
+  overrideContextKind: ContextOverride = "auto",
+  planningMode: PlanningMode = "normal"
 ): string {
   const resolvedContextKind = resolveContextKind(prompt, overrideContextKind);
+  const taskRange = getTaskRangeByMode(planningMode);
+  const detailGuardrail = getDetailGuardrail(planningMode);
   const lines = [
     `Yêu cầu chuyến đi: ${prompt}`,
     `Danh sách thành viên (chỉ dùng các tên này): ${memberNames.join(", ")}`,
+    `Trường planningMode phải bằng: ${planningMode}.`,
     `Trường detectedEventType phải bằng: ${resolvedContextKind}.`,
-    "Ràng buộc: mỗi thành viên có 3-4 công việc, vai trò khác nhau và nhiệm vụ không trùng việc chính.",
+    `Ràng buộc: mỗi thành viên có ${taskRange.min}-${taskRange.max} công việc, vai trò khác nhau và nhiệm vụ không trùng việc chính.`,
     "Task phải đủ chi tiết theo mẫu: Hành động + Hạng mục cụ thể + Mốc thời gian/Kết quả.",
+    detailGuardrail,
     "Ví dụ tốt: 'Mua 4kg trái cây + 24 lon nước ngọt trước 16:00, gửi hóa đơn và ảnh giao hàng vào nhóm'.",
     "Ưu tiên chia đều khối lượng công việc và tránh nhiệm vụ trùng lặp không cần thiết.",
     "Trả JSON đúng schema duy nhất."
@@ -550,19 +625,37 @@ function buildRoleTaskBank(
   return commonRoleTaskBank;
 }
 
-function enforceThreeToFourTasks(tasks: string[], fallbackPool: string[]): string[] {
+function enforceTaskCountByMode(
+  tasks: string[],
+  fallbackPool: string[],
+  planningMode: PlanningMode,
+  targetCount: number
+): string[] {
+  const taskRange = getTaskRangeByMode(planningMode);
   const normalized = tasks.map((item) => item.trim()).filter(Boolean);
 
-  if (normalized.length >= 3 && normalized.length <= 4) {
-    return normalized;
+  if (normalized.length >= taskRange.min && normalized.length <= taskRange.max) {
+    if (normalized.length === targetCount) {
+      return normalized;
+    }
+
+    if (normalized.length > targetCount) {
+      return normalized.slice(0, targetCount);
+    }
+
+    const next = [...normalized];
+    for (let index = 0; next.length < targetCount; index += 1) {
+      next.push(fallbackPool[index % fallbackPool.length]);
+    }
+    return next;
   }
 
-  if (normalized.length > 4) {
-    return normalized.slice(0, 4);
+  if (normalized.length > taskRange.max) {
+    return normalized.slice(0, targetCount);
   }
 
   const next = [...normalized];
-  for (let index = 0; next.length < 3; index += 1) {
+  for (let index = 0; next.length < targetCount; index += 1) {
     next.push(fallbackPool[index % fallbackPool.length]);
   }
 
@@ -579,11 +672,22 @@ function buildRoleSpecificTasks(
   prompt: string,
   memberIndex: number,
   targetCount: number,
-  overrideContextKind: ContextOverride = "auto"
+  overrideContextKind: ContextOverride = "auto",
+  planningMode: PlanningMode = "normal"
 ): string[] {
   const roleTaskBank = buildRoleTaskBank(prompt, overrideContextKind);
   const fallbackPool = buildTaskTemplateByContext(prompt, overrideContextKind);
-  const pool = roleTaskBank[role] ?? fallbackPool;
+  const basePool = roleTaskBank[role] ?? fallbackPool;
+  const pool =
+    planningMode === "complex"
+      ? [
+          ...basePool,
+          ...basePool.map(
+            (task, index) =>
+              `${task}; bổ sung kiểm soát rủi ro ở bước ${index + 1} và xác nhận đầu ra bằng ảnh/chứng từ trước mốc bàn giao`
+          )
+        ]
+      : basePool;
 
   const start = memberIndex % pool.length;
   const detailedTasks: string[] = [];
@@ -602,6 +706,19 @@ function buildRoleSpecificTasks(
   return detailedTasks;
 }
 
+function addComplexDetail(task: string, assigneeName: string, role: string): string {
+  const normalized = task.trim();
+  if (!normalized) {
+    return task;
+  }
+
+  if (/rủi ro|tiêu chí|bàn giao|biên bản/i.test(normalized)) {
+    return normalized;
+  }
+
+  return `${normalized}; bổ sung tiêu chí nghiệm thu theo vai trò ${role}, ghi nhận rủi ro chính và gửi biên bản bàn giao bởi ${assigneeName}`;
+}
+
 function enforceDetailedDistinctTasks(
   currentTasks: string[],
   role: string,
@@ -609,15 +726,22 @@ function enforceDetailedDistinctTasks(
   prompt: string,
   memberIndex: number,
   usedTaskSet: Set<string>,
-  overrideContextKind: ContextOverride = "auto"
+  overrideContextKind: ContextOverride = "auto",
+  planningMode: PlanningMode = "normal",
+  targetCount?: number
 ): string[] {
-  const targetCount = Math.min(Math.max(currentTasks.length, 3), 4);
+  const taskRange = getTaskRangeByMode(planningMode);
+  const desiredTaskCount =
+    targetCount !== undefined
+      ? Math.min(Math.max(targetCount, taskRange.min), taskRange.max)
+      : Math.min(Math.max(currentTasks.length, taskRange.min), taskRange.max);
   const roleDetailedPool = buildRoleSpecificTasks(
     role,
     prompt,
     memberIndex,
-    6,
-    overrideContextKind
+    Math.max(6, desiredTaskCount + 2),
+    overrideContextKind,
+    planningMode
   );
 
   const finalTasks: string[] = [];
@@ -639,11 +763,13 @@ function enforceDetailedDistinctTasks(
   };
 
   for (const task of currentTasks) {
-    if (finalTasks.length >= targetCount) {
+    if (finalTasks.length >= desiredTaskCount) {
       break;
     }
 
-    if (!isGenericTask(task) && task.trim().length >= 35 && pushUniqueTask(task)) {
+    const normalizedTask = planningMode === "complex" ? addComplexDetail(task, assigneeName, role) : task;
+
+    if (!isGenericTask(normalizedTask) && normalizedTask.trim().length >= 35 && pushUniqueTask(normalizedTask)) {
       continue;
     }
 
@@ -654,11 +780,13 @@ function enforceDetailedDistinctTasks(
     poolCursor += 1;
   }
 
-  while (finalTasks.length < targetCount) {
+  while (finalTasks.length < desiredTaskCount) {
     const fallbackTask = roleDetailedPool[poolCursor % roleDetailedPool.length];
-    const uniqueVariant = `${fallbackTask} (đầu mối: ${assigneeName})`;
+    const detailedFallbackTask =
+      planningMode === "complex" ? addComplexDetail(fallbackTask, assigneeName, role) : fallbackTask;
+    const uniqueVariant = `${detailedFallbackTask} (đầu mối: ${assigneeName})`;
 
-    if (!pushUniqueTask(fallbackTask)) {
+    if (!pushUniqueTask(detailedFallbackTask)) {
       pushUniqueTask(uniqueVariant);
     }
 
@@ -672,13 +800,15 @@ export function normalizeTripPlan(
   object: TripPlan,
   memberNames: string[],
   prompt: string,
-  overrideContextKind: ContextOverride = "auto"
+  overrideContextKind: ContextOverride = "auto",
+  planningMode: PlanningMode = "normal"
 ): TripPlan {
   const resolvedContextKind = resolveContextKind(prompt, overrideContextKind);
   const fallbackTasks = buildTaskTemplateByContext(prompt, overrideContextKind);
   const inferredContext = inferContext(prompt, overrideContextKind);
   const roleHints = inferredContext.roleHints;
   const usedTaskSet = new Set<string>();
+  const targetTaskCounts = buildBalancedTaskTargets(memberNames.length, planningMode);
 
   const assignmentByName = new Map(
     object.assignments.map((assignment) => [assignment.assigneeName.toLowerCase(), assignment])
@@ -692,13 +822,20 @@ export function normalizeTripPlan(
       assigneeName: name,
       role: resolvedRole,
       tasks: enforceDetailedDistinctTasks(
-        enforceThreeToFourTasks(fromAi?.tasks ?? [], fallbackTasks),
+        enforceTaskCountByMode(
+          fromAi?.tasks ?? [],
+          fallbackTasks,
+          planningMode,
+          targetTaskCounts[index] ?? getTaskRangeByMode(planningMode).defaultCount
+        ),
         resolvedRole,
         name,
         prompt,
         index,
         usedTaskSet,
-        overrideContextKind
+        overrideContextKind,
+        planningMode,
+        targetTaskCounts[index]
       )
     };
   });
@@ -712,6 +849,7 @@ export function normalizeTripPlan(
       )
         ? inferredContext.analysis
         : object.contextAnalysis.trim(),
+    planningMode,
     detectedEventType: resolvedContextKind,
     assignments
   };
@@ -720,30 +858,40 @@ export function normalizeTripPlan(
 export function buildMockTripPlan(
   prompt: string,
   memberNames: string[],
-  overrideContextKind: ContextOverride = "auto"
+  overrideContextKind: ContextOverride = "auto",
+  planningMode: PlanningMode = "normal"
 ): TripPlan {
   const resolvedContextKind = resolveContextKind(prompt, overrideContextKind);
   const context = inferContext(prompt, overrideContextKind);
   const fallbackTasks = buildTaskTemplateByContext(prompt, overrideContextKind);
   const usedTaskSet = new Set<string>();
+  const targetTaskCounts = buildBalancedTaskTargets(memberNames.length, planningMode);
 
   const assignments = memberNames.map((memberName, index) => ({
     assigneeName: memberName,
     role: context.roleHints[index % context.roleHints.length],
     tasks: enforceDetailedDistinctTasks(
-      fallbackTasks,
+      enforceTaskCountByMode(
+        fallbackTasks,
+        fallbackTasks,
+        planningMode,
+        targetTaskCounts[index] ?? getTaskRangeByMode(planningMode).defaultCount
+      ),
       context.roleHints[index % context.roleHints.length],
       memberName,
       prompt,
       index,
       usedTaskSet,
-      overrideContextKind
+      overrideContextKind,
+      planningMode,
+      targetTaskCounts[index]
     )
   }));
 
   return {
     eventName: prompt.slice(0, 120) || "Kế hoạch chuyến đi nhóm",
     contextAnalysis: context.analysis,
+    planningMode,
     detectedEventType: resolvedContextKind,
     assignments
   };
@@ -752,7 +900,8 @@ export function buildMockTripPlan(
 export async function generateTripTasks(
   prompt: string,
   memberNamesInput: string,
-  overrideContextKind: ContextOverride = "auto"
+  overrideContextKind: ContextOverride = "auto",
+  planningMode: PlanningMode = "normal"
 ): Promise<TripPlan> {
   const safePrompt = prompt.trim();
   const memberNames = parseMemberNames(memberNamesInput);
@@ -768,20 +917,35 @@ export async function generateTripTasks(
   if (process.env.OPENAI_API_KEY) {
     try {
       const resolvedContextKind = resolveContextKind(safePrompt, overrideContextKind);
-      const runtimeSchema = createTripPlanSchemaForMembers(memberNames, resolvedContextKind);
+      const runtimeSchema = createTripPlanSchemaForMembers(
+        memberNames,
+        resolvedContextKind,
+        planningMode
+      );
 
       const { object } = await generateObject({
         model: openai(process.env.OPENAI_MODEL ?? "gpt-4o-mini"),
         schema: runtimeSchema,
         system: TRIP_PLANNER_SYSTEM_PROMPT,
-        prompt: buildTripPlannerPrompt(safePrompt, memberNames, overrideContextKind)
+        prompt: buildTripPlannerPrompt(
+          safePrompt,
+          memberNames,
+          overrideContextKind,
+          planningMode
+        )
       });
 
-      return normalizeTripPlan(runtimeSchema.parse(object), memberNames, safePrompt, overrideContextKind);
+      return normalizeTripPlan(
+        runtimeSchema.parse(object),
+        memberNames,
+        safePrompt,
+        overrideContextKind,
+        planningMode
+      );
     } catch (error) {
       console.error("AI generation failed. Falling back to mock plan.", error);
     }
   }
 
-  return buildMockTripPlan(safePrompt, memberNames, overrideContextKind);
+  return buildMockTripPlan(safePrompt, memberNames, overrideContextKind, planningMode);
 }
