@@ -1,27 +1,36 @@
 import { streamObject } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import {
   buildTripPlannerPrompt,
   buildMockTripPlan,
+  type ContextOverride,
   createTripPlanSchemaForMembers,
   parseMemberNames,
+  resolveContextKind,
   TRIP_PLANNER_SYSTEM_PROMPT,
 } from "@/app/trip-plan";
 
 export const maxDuration = 30;
+
+const contextOverrideSchema = z
+  .enum(["auto", "charity", "farewell", "home-party", "outdoor", "celebration", "workshop", "community", "generic"])
+  .optional();
 
 export async function POST(request: Request) {
   try {
     let body: {
       prompt?: string;
       memberNamesInput?: string;
+      overrideContextKind?: string;
     };
 
     try {
       body = (await request.json()) as {
         prompt?: string;
         memberNamesInput?: string;
+        overrideContextKind?: string;
       };
     } catch {
       return NextResponse.json(
@@ -32,6 +41,12 @@ export async function POST(request: Request) {
 
     const prompt = body.prompt?.trim() ?? "";
     const memberNamesInput = body.memberNamesInput?.trim() ?? "";
+    const overrideContextKindParsed = contextOverrideSchema.safeParse(body.overrideContextKind);
+    if (!overrideContextKindParsed.success) {
+      return NextResponse.json({ error: "overrideContextKind không hợp lệ." }, { status: 400 });
+    }
+
+    const overrideContextKind = overrideContextKindParsed.data as ContextOverride;
     const memberNames = parseMemberNames(memberNamesInput);
 
     if (!prompt) {
@@ -46,16 +61,17 @@ export async function POST(request: Request) {
     }
 
     if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(buildMockTripPlan(prompt, memberNames));
+      return NextResponse.json(buildMockTripPlan(prompt, memberNames, overrideContextKind));
     }
 
-    const runtimeSchema = createTripPlanSchemaForMembers(memberNames);
+    const resolvedContextKind = resolveContextKind(prompt, overrideContextKind);
+    const runtimeSchema = createTripPlanSchemaForMembers(memberNames, resolvedContextKind);
 
     const result = streamObject({
       model: openai(process.env.OPENAI_MODEL ?? "gpt-4o-mini"),
       schema: runtimeSchema,
       system: TRIP_PLANNER_SYSTEM_PROMPT,
-      prompt: buildTripPlannerPrompt(prompt, memberNames)
+      prompt: buildTripPlannerPrompt(prompt, memberNames, overrideContextKind)
     });
 
     return result.toTextStreamResponse();

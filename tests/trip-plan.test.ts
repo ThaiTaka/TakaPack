@@ -4,7 +4,8 @@ import {
   createTripPlanSchemaForMembers,
   inferContext,
   normalizeTripPlan,
-  parseMemberNames
+  parseMemberNames,
+  resolveContextKind
 } from "../app/trip-plan";
 
 describe("parseMemberNames", () => {
@@ -16,11 +17,12 @@ describe("parseMemberNames", () => {
 
 describe("createTripPlanSchemaForMembers", () => {
   it("accepts only provided assignee names", () => {
-    const schema = createTripPlanSchemaForMembers(["Taka", "Nhi"]);
+    const schema = createTripPlanSchemaForMembers(["Taka", "Nhi"], "charity");
 
     const parsed = schema.safeParse({
       eventName: "Test",
       contextAnalysis: "Context",
+      detectedEventType: "charity",
       assignments: [
         {
           assigneeName: "Taka",
@@ -35,6 +37,7 @@ describe("createTripPlanSchemaForMembers", () => {
     const invalid = schema.safeParse({
       eventName: "Test",
       contextAnalysis: "Context",
+      detectedEventType: "charity",
       assignments: [
         {
           assigneeName: "KhacNguoi",
@@ -59,6 +62,8 @@ describe("normalizeTripPlan", () => {
       expect(assignment.tasks.length).toBeGreaterThanOrEqual(3);
       expect(assignment.tasks.length).toBeLessThanOrEqual(4);
     }
+
+    expect(normalized.detectedEventType).toBe("outdoor");
   });
 
   it("enriches tasks with deadline or deliverable details", () => {
@@ -151,5 +156,10 @@ describe("normalizeTripPlan", () => {
     const context = inferContext("Tổ chức ngày hội đổi sách cũ cho sinh viên ở ký túc xá");
     expect(context.analysis.toLowerCase()).toContain("sự kiện");
     expect(context.analysis.toLowerCase()).not.toContain("chuyến đi nhóm tổng quát");
+  });
+
+  it("respects manual override context kind", () => {
+    const kind = resolveContextKind("Tổ chức workshop kỹ năng mềm", "charity");
+    expect(kind).toBe("charity");
   });
 });

@@ -3,6 +3,29 @@ import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import type { TripPlan } from "./types";
 
+export type ContextKind =
+  | "charity"
+  | "farewell"
+  | "home-party"
+  | "outdoor"
+  | "celebration"
+  | "workshop"
+  | "community"
+  | "generic";
+
+export type ContextOverride = ContextKind | "auto" | undefined;
+
+const CONTEXT_KIND_VALUES = [
+  "charity",
+  "farewell",
+  "home-party",
+  "outdoor",
+  "celebration",
+  "workshop",
+  "community",
+  "generic"
+] as const;
+
 const assignmentSchema = z
   .object({
     assigneeName: z.string().min(1),
@@ -14,16 +37,24 @@ const assignmentSchema = z
 export const tripPlanSchema = z.object({
   eventName: z.string().min(1),
   contextAnalysis: z.string().min(1),
+  detectedEventType: z.string().min(1).optional(),
   assignments: z.array(assignmentSchema).min(1).max(20)
 }).strict();
 
-export function createTripPlanSchemaForMembers(memberNames: string[]) {
+export function createTripPlanSchemaForMembers(
+  memberNames: string[],
+  resolvedContextKind?: ContextKind
+) {
   const allowedAssignees = z.enum(memberNames as [string, ...string[]]);
+  const detectedEventTypeSchema = resolvedContextKind
+    ? z.literal(resolvedContextKind)
+    : z.enum(CONTEXT_KIND_VALUES);
 
   return z
     .object({
       eventName: z.string().min(1),
       contextAnalysis: z.string().min(1),
+      detectedEventType: detectedEventTypeSchema,
       assignments: z
         .array(
           z
@@ -51,16 +82,39 @@ export const TRIP_PLANNER_SYSTEM_PROMPT = [
   "Luôn trả về JSON nghiêm ngặt đúng schema, không markdown, không giải thích ngoài JSON."
 ].join(" ");
 
-export function buildTripPlannerPrompt(prompt: string, memberNames: string[]): string {
-  return [
+export function buildTripPlannerPrompt(
+  prompt: string,
+  memberNames: string[],
+  overrideContextKind: ContextOverride = "auto"
+): string {
+  const resolvedContextKind = resolveContextKind(prompt, overrideContextKind);
+  const lines = [
     `Yêu cầu chuyến đi: ${prompt}`,
     `Danh sách thành viên (chỉ dùng các tên này): ${memberNames.join(", ")}`,
+    `Trường detectedEventType phải bằng: ${resolvedContextKind}.`,
     "Ràng buộc: mỗi thành viên có 3-4 công việc, vai trò khác nhau và nhiệm vụ không trùng việc chính.",
     "Task phải đủ chi tiết theo mẫu: Hành động + Hạng mục cụ thể + Mốc thời gian/Kết quả.",
     "Ví dụ tốt: 'Mua 4kg trái cây + 24 lon nước ngọt trước 16:00, gửi hóa đơn và ảnh giao hàng vào nhóm'.",
     "Ưu tiên chia đều khối lượng công việc và tránh nhiệm vụ trùng lặp không cần thiết.",
     "Trả JSON đúng schema duy nhất."
-  ].join("\n");
+  ];
+
+  if (overrideContextKind && overrideContextKind !== "auto") {
+    lines.push(`Bắt buộc phân tích theo nhóm ngữ cảnh đã chọn: ${overrideContextKind}.`);
+  }
+
+  return lines.join("\n");
+}
+
+export function resolveContextKind(
+  prompt: string,
+  overrideContextKind: ContextOverride = "auto"
+): ContextKind {
+  if (overrideContextKind && overrideContextKind !== "auto") {
+    return overrideContextKind;
+  }
+
+  return detectContextKind(prompt);
 }
 
 export function parseMemberNames(membersInput: string): string[] {
@@ -84,8 +138,11 @@ export function parseMemberNames(membersInput: string): string[] {
     });
 }
 
-export function inferContext(prompt: string): { analysis: string; roleHints: string[] } {
-  const contextKind = detectContextKind(prompt);
+export function inferContext(
+  prompt: string,
+  overrideContextKind: ContextOverride = "auto"
+): { analysis: string; roleHints: string[] } {
+  const contextKind = resolveContextKind(prompt, overrideContextKind);
   const normalized = prompt.toLowerCase();
 
   if (contextKind === "charity") {
@@ -162,16 +219,6 @@ export function inferContext(prompt: string): { analysis: string; roleHints: str
   };
 }
 
-type ContextKind =
-  | "charity"
-  | "farewell"
-  | "home-party"
-  | "outdoor"
-  | "celebration"
-  | "workshop"
-  | "community"
-  | "generic";
-
 function detectContextKind(prompt: string): ContextKind {
   const normalized = prompt.toLowerCase();
 
@@ -206,8 +253,11 @@ function detectContextKind(prompt: string): ContextKind {
   return "generic";
 }
 
-function buildTaskTemplateByContext(prompt: string): string[] {
-  const contextKind = detectContextKind(prompt);
+function buildTaskTemplateByContext(
+  prompt: string,
+  overrideContextKind: ContextOverride = "auto"
+): string[] {
+  const contextKind = resolveContextKind(prompt, overrideContextKind);
 
   if (contextKind === "charity") {
     return [
@@ -280,8 +330,11 @@ function buildTaskTemplateByContext(prompt: string): string[] {
   ];
 }
 
-function buildRoleTaskBank(prompt: string): Record<string, string[]> {
-  const contextKind = detectContextKind(prompt);
+function buildRoleTaskBank(
+  prompt: string,
+  overrideContextKind: ContextOverride = "auto"
+): Record<string, string[]> {
+  const contextKind = resolveContextKind(prompt, overrideContextKind);
 
   const commonRoleTaskBank: Record<string, string[]> = {
     "Hậu cần": [
@@ -525,10 +578,11 @@ function buildRoleSpecificTasks(
   role: string,
   prompt: string,
   memberIndex: number,
-  targetCount: number
+  targetCount: number,
+  overrideContextKind: ContextOverride = "auto"
 ): string[] {
-  const roleTaskBank = buildRoleTaskBank(prompt);
-  const fallbackPool = buildTaskTemplateByContext(prompt);
+  const roleTaskBank = buildRoleTaskBank(prompt, overrideContextKind);
+  const fallbackPool = buildTaskTemplateByContext(prompt, overrideContextKind);
   const pool = roleTaskBank[role] ?? fallbackPool;
 
   const start = memberIndex % pool.length;
@@ -554,10 +608,17 @@ function enforceDetailedDistinctTasks(
   assigneeName: string,
   prompt: string,
   memberIndex: number,
-  usedTaskSet: Set<string>
+  usedTaskSet: Set<string>,
+  overrideContextKind: ContextOverride = "auto"
 ): string[] {
   const targetCount = Math.min(Math.max(currentTasks.length, 3), 4);
-  const roleDetailedPool = buildRoleSpecificTasks(role, prompt, memberIndex, 6);
+  const roleDetailedPool = buildRoleSpecificTasks(
+    role,
+    prompt,
+    memberIndex,
+    6,
+    overrideContextKind
+  );
 
   const finalTasks: string[] = [];
   let poolCursor = 0;
@@ -607,9 +668,15 @@ function enforceDetailedDistinctTasks(
   return finalTasks;
 }
 
-export function normalizeTripPlan(object: TripPlan, memberNames: string[], prompt: string): TripPlan {
-  const fallbackTasks = buildTaskTemplateByContext(prompt);
-  const inferredContext = inferContext(prompt);
+export function normalizeTripPlan(
+  object: TripPlan,
+  memberNames: string[],
+  prompt: string,
+  overrideContextKind: ContextOverride = "auto"
+): TripPlan {
+  const resolvedContextKind = resolveContextKind(prompt, overrideContextKind);
+  const fallbackTasks = buildTaskTemplateByContext(prompt, overrideContextKind);
+  const inferredContext = inferContext(prompt, overrideContextKind);
   const roleHints = inferredContext.roleHints;
   const usedTaskSet = new Set<string>();
 
@@ -630,7 +697,8 @@ export function normalizeTripPlan(object: TripPlan, memberNames: string[], promp
         name,
         prompt,
         index,
-        usedTaskSet
+        usedTaskSet,
+        overrideContextKind
       )
     };
   });
@@ -644,13 +712,19 @@ export function normalizeTripPlan(object: TripPlan, memberNames: string[], promp
       )
         ? inferredContext.analysis
         : object.contextAnalysis.trim(),
+    detectedEventType: resolvedContextKind,
     assignments
   };
 }
 
-export function buildMockTripPlan(prompt: string, memberNames: string[]): TripPlan {
-  const context = inferContext(prompt);
-  const fallbackTasks = buildTaskTemplateByContext(prompt);
+export function buildMockTripPlan(
+  prompt: string,
+  memberNames: string[],
+  overrideContextKind: ContextOverride = "auto"
+): TripPlan {
+  const resolvedContextKind = resolveContextKind(prompt, overrideContextKind);
+  const context = inferContext(prompt, overrideContextKind);
+  const fallbackTasks = buildTaskTemplateByContext(prompt, overrideContextKind);
   const usedTaskSet = new Set<string>();
 
   const assignments = memberNames.map((memberName, index) => ({
@@ -662,18 +736,24 @@ export function buildMockTripPlan(prompt: string, memberNames: string[]): TripPl
       memberName,
       prompt,
       index,
-      usedTaskSet
+      usedTaskSet,
+      overrideContextKind
     )
   }));
 
   return {
     eventName: prompt.slice(0, 120) || "Kế hoạch chuyến đi nhóm",
     contextAnalysis: context.analysis,
+    detectedEventType: resolvedContextKind,
     assignments
   };
 }
 
-export async function generateTripTasks(prompt: string, memberNamesInput: string): Promise<TripPlan> {
+export async function generateTripTasks(
+  prompt: string,
+  memberNamesInput: string,
+  overrideContextKind: ContextOverride = "auto"
+): Promise<TripPlan> {
   const safePrompt = prompt.trim();
   const memberNames = parseMemberNames(memberNamesInput);
 
@@ -687,20 +767,21 @@ export async function generateTripTasks(prompt: string, memberNamesInput: string
 
   if (process.env.OPENAI_API_KEY) {
     try {
-      const runtimeSchema = createTripPlanSchemaForMembers(memberNames);
+      const resolvedContextKind = resolveContextKind(safePrompt, overrideContextKind);
+      const runtimeSchema = createTripPlanSchemaForMembers(memberNames, resolvedContextKind);
 
       const { object } = await generateObject({
         model: openai(process.env.OPENAI_MODEL ?? "gpt-4o-mini"),
         schema: runtimeSchema,
         system: TRIP_PLANNER_SYSTEM_PROMPT,
-        prompt: buildTripPlannerPrompt(safePrompt, memberNames)
+        prompt: buildTripPlannerPrompt(safePrompt, memberNames, overrideContextKind)
       });
 
-      return normalizeTripPlan(runtimeSchema.parse(object), memberNames, safePrompt);
+      return normalizeTripPlan(runtimeSchema.parse(object), memberNames, safePrompt, overrideContextKind);
     } catch (error) {
       console.error("AI generation failed. Falling back to mock plan.", error);
     }
   }
 
-  return buildMockTripPlan(safePrompt, memberNames);
+  return buildMockTripPlan(safePrompt, memberNames, overrideContextKind);
 }

@@ -19,9 +19,26 @@ import { trackClientEvent } from "@/lib/analytics";
 const STORAGE_KEYS = {
   prompt: "takapack.prompt",
   members: "takapack.members",
+  contextOverride: "takapack.contextOverride",
   plan: "takapack.plan",
   completed: "takapack.completed"
 } as const;
+
+const CONTEXT_OVERRIDE_OPTIONS = [
+  { value: "auto", label: "Tự động nhận diện" },
+  { value: "charity", label: "Thiện nguyện/Từ thiện" },
+  { value: "farewell", label: "Tiệc chia tay" },
+  { value: "home-party", label: "Tiệc tại nhà" },
+  { value: "outdoor", label: "Outdoor/Cắm trại" },
+  { value: "celebration", label: "Tiệc/Kỷ niệm" },
+  { value: "workshop", label: "Workshop/Hội thảo" },
+  { value: "community", label: "Sự kiện cộng đồng" },
+  { value: "generic", label: "Sự kiện tổng quát" }
+] as const;
+
+const CONTEXT_LABEL_MAP = Object.fromEntries(
+  CONTEXT_OVERRIDE_OPTIONS.map((option) => [option.value, option.label])
+) as Record<string, string>;
 
 const PROMPT_PRESETS = [
   "BBQ tại nhà tối thứ 7, 8 người, cần setup sân thượng và dọn dẹp nhanh",
@@ -32,6 +49,7 @@ const PROMPT_PRESETS = [
 const tripPlanSchema = z.object({
   eventName: z.string(),
   contextAnalysis: z.string(),
+  detectedEventType: z.string().optional(),
   assignments: z.array(
     z.object({
       assigneeName: z.string(),
@@ -76,6 +94,7 @@ function AssignmentSkeletonCard() {
 export default function TripPlanner() {
   const [prompt, setPrompt] = useState("");
   const [memberNamesInput, setMemberNamesInput] = useState("Taka, Nhi, Nam, Huy");
+  const [contextOverride, setContextOverride] = useState<(typeof CONTEXT_OVERRIDE_OPTIONS)[number]["value"]>("auto");
   const [plan, setPlan] = useState<TripPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [completedTasks, setCompletedTasks] = useState<Record<string, boolean>>({});
@@ -107,6 +126,7 @@ export default function TripPlanner() {
     try {
       const storedPrompt = localStorage.getItem(STORAGE_KEYS.prompt);
       const storedMembers = localStorage.getItem(STORAGE_KEYS.members);
+      const storedContextOverride = localStorage.getItem(STORAGE_KEYS.contextOverride);
       const storedPlan = localStorage.getItem(STORAGE_KEYS.plan);
       const storedCompleted = localStorage.getItem(STORAGE_KEYS.completed);
 
@@ -116,6 +136,13 @@ export default function TripPlanner() {
 
       if (storedMembers) {
         setMemberNamesInput(storedMembers);
+      }
+
+      if (
+        storedContextOverride &&
+        CONTEXT_OVERRIDE_OPTIONS.some((option) => option.value === storedContextOverride)
+      ) {
+        setContextOverride(storedContextOverride as (typeof CONTEXT_OVERRIDE_OPTIONS)[number]["value"]);
       }
 
       if (storedPlan) {
@@ -142,6 +169,10 @@ export default function TripPlanner() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.members, memberNamesInput);
   }, [memberNamesInput]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.contextOverride, contextOverride);
+  }, [contextOverride]);
 
   useEffect(() => {
     if (!plan) {
@@ -246,10 +277,11 @@ export default function TripPlanner() {
     trackClientEvent({
       eventName: "plan_submit",
       metadata: {
-        memberCount: memberNamesInput.split(",").map((item) => item.trim()).filter(Boolean).length
+        memberCount: memberNamesInput.split(",").map((item) => item.trim()).filter(Boolean).length,
+        contextOverride
       }
     });
-    submit({ prompt, memberNamesInput });
+    submit({ prompt, memberNamesInput, overrideContextKind: contextOverride });
   };
 
   const handleToggleTask = (assigneeName: string, taskIndex: number) => {
@@ -269,6 +301,7 @@ export default function TripPlanner() {
 
     localStorage.removeItem(STORAGE_KEYS.prompt);
     localStorage.removeItem(STORAGE_KEYS.members);
+    localStorage.removeItem(STORAGE_KEYS.contextOverride);
     localStorage.removeItem(STORAGE_KEYS.plan);
     localStorage.removeItem(STORAGE_KEYS.completed);
 
@@ -355,6 +388,26 @@ export default function TripPlanner() {
             </div>
           </div>
 
+          <div className="space-y-2">
+            <label htmlFor="context-override" className="block text-sm font-medium text-slate-200">
+              Chế độ nhận diện sự kiện
+            </label>
+            <select
+              id="context-override"
+              value={contextOverride}
+              onChange={(event) =>
+                setContextOverride(event.target.value as (typeof CONTEXT_OVERRIDE_OPTIONS)[number]["value"])
+              }
+              className="w-full rounded-xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-100 focus:border-cyan-400"
+            >
+              {CONTEXT_OVERRIDE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value} className="bg-slate-900 text-slate-100">
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex flex-wrap gap-2">
             <button
               type="submit"
@@ -410,6 +463,9 @@ export default function TripPlanner() {
                 <Sparkles className="h-3.5 w-3.5" />
                 {completedCount}/{totalTasks} hoàn thành ({completionPercent}%)
               </div>
+            </div>
+            <div className="mt-2 inline-flex items-center rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-200">
+              Event Type: {CONTEXT_LABEL_MAP[displayPlan.detectedEventType ?? "auto"] ?? (displayPlan.detectedEventType ?? "auto")}
             </div>
             <p className="mt-2 text-sm text-slate-300">{displayPlan.contextAnalysis}</p>
 
