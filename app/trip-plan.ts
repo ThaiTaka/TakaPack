@@ -85,9 +85,10 @@ export function parseMemberNames(membersInput: string): string[] {
 }
 
 export function inferContext(prompt: string): { analysis: string; roleHints: string[] } {
+  const contextKind = detectContextKind(prompt);
   const normalized = prompt.toLowerCase();
 
-  if (/(từ thiện|quyên góp|vô gia cư|phát cơm|suất ăn miễn phí|thiện nguyện)/.test(normalized)) {
+  if (contextKind === "charity") {
     return {
       analysis:
         "Sự kiện thiện nguyện phục vụ suất ăn cho người khó khăn, cần phân vai chặt giữa khâu nấu/đóng gói, hậu cần nguyên liệu, phân phối tại điểm phát và an toàn hiện trường.",
@@ -101,7 +102,7 @@ export function inferContext(prompt: string): { analysis: string; roleHints: str
     };
   }
 
-  if (/(chia tay đồng nghiệp|tiệc chia tay|farewell|tạm biệt đồng nghiệp|offboarding)/.test(normalized)) {
+  if (contextKind === "farewell") {
     return {
       analysis:
         "Sự kiện tiệc chia tay đồng nghiệp, cần phân vai rõ giữa trang trí, ăn uống, chương trình phát biểu, quà lưu niệm và hậu cần vận hành tại chỗ.",
@@ -115,7 +116,7 @@ export function inferContext(prompt: string): { analysis: string; roleHints: str
     };
   }
 
-  if (/(tại nhà|ở nhà|home party|bbq tại nhà|nấu ăn tại nhà)/.test(normalized)) {
+  if (contextKind === "home-party") {
     return {
       analysis:
         "Sự kiện tổ chức tại nhà, ưu tiên chuẩn bị thực phẩm, dọn dẹp, setup không gian; không cần lều trại hay hậu cần di chuyển phức tạp.",
@@ -123,7 +124,7 @@ export function inferContext(prompt: string): { analysis: string; roleHints: str
     };
   }
 
-  if (/(đi rừng|trek|camping|cắm trại|leo núi|sinh tồn)/.test(normalized)) {
+  if (contextKind === "outdoor") {
     return {
       analysis:
         "Hoạt động ngoài trời ở địa hình tự nhiên, cần bổ sung nhóm nhiệm vụ an toàn, sinh tồn, y tế, thiết bị trú ẩn và điều hướng.",
@@ -131,7 +132,7 @@ export function inferContext(prompt: string): { analysis: string; roleHints: str
     };
   }
 
-  if (/(sinh nhật|kỷ niệm|liên hoan|party|tiệc)/.test(normalized)) {
+  if (contextKind === "celebration") {
     return {
       analysis:
         `Sự kiện dạng tiệc/celebration (${prompt.slice(0, 80)}), cần tách rõ trang trí, đồ ăn thức uống, nội dung chương trình và hậu cần địa điểm để tránh chồng chéo công việc.`,
@@ -139,7 +140,7 @@ export function inferContext(prompt: string): { analysis: string; roleHints: str
     };
   }
 
-  if (/(workshop|đào tạo|hội thảo|seminar|thuyết trình)/.test(normalized)) {
+  if (contextKind === "workshop") {
     return {
       analysis:
         `Sự kiện học thuật/chia sẻ kiến thức (${prompt.slice(0, 80)}), cần phân vai nội dung, truyền thông, hậu cần phòng ốc và chăm sóc người tham dự.`,
@@ -147,16 +148,68 @@ export function inferContext(prompt: string): { analysis: string; roleHints: str
     };
   }
 
+  if (contextKind === "community") {
+    return {
+      analysis:
+        `Sự kiện cộng đồng/xã hội (${prompt.slice(0, 80)}), cần tách rõ vận động nguồn lực, vận hành hiện trường, truyền thông và chăm sóc đối tượng thụ hưởng.`,
+      roleHints: ["Điều phối cộng đồng", "Nguồn lực", "Truyền thông", "Vận hành hiện trường"]
+    };
+  }
+
   return {
-    analysis: `Sự kiện "${prompt.slice(0, 120)}" có tính chất tùy biến, cần bóc tách mục tiêu, đối tượng tham gia và điều kiện thực thi để phân công nhiệm vụ cụ thể theo từng người.`,
-    roleHints: ["Hậu cần", "Ẩm thực", "An toàn", "Điều phối hoạt động"]
+    analysis: `Sự kiện "${prompt.slice(0, 120)}" chưa thuộc nhóm mẫu có sẵn, vì vậy hệ thống ưu tiên bóc tách mục tiêu chính, đối tượng phục vụ và điều kiện thực tế để giao việc chi tiết, đo lường được cho từng thành viên.`,
+    roleHints: ["Điều phối tổng", "Nội dung chính", "Hậu cần thực thi", "Giám sát chất lượng"]
   };
 }
 
-function buildTaskTemplateByContext(prompt: string): string[] {
+type ContextKind =
+  | "charity"
+  | "farewell"
+  | "home-party"
+  | "outdoor"
+  | "celebration"
+  | "workshop"
+  | "community"
+  | "generic";
+
+function detectContextKind(prompt: string): ContextKind {
   const normalized = prompt.toLowerCase();
 
   if (/(từ thiện|quyên góp|vô gia cư|phát cơm|suất ăn miễn phí|thiện nguyện)/.test(normalized)) {
+    return "charity";
+  }
+
+  if (/(chia tay đồng nghiệp|tiệc chia tay|farewell|tạm biệt đồng nghiệp|offboarding)/.test(normalized)) {
+    return "farewell";
+  }
+
+  if (/(tại nhà|ở nhà|home party|bbq tại nhà|nấu ăn tại nhà)/.test(normalized)) {
+    return "home-party";
+  }
+
+  if (/(đi rừng|trek|camping|cắm trại|leo núi|sinh tồn)/.test(normalized)) {
+    return "outdoor";
+  }
+
+  if (/(sinh nhật|kỷ niệm|liên hoan|party|tiệc)/.test(normalized)) {
+    return "celebration";
+  }
+
+  if (/(workshop|đào tạo|hội thảo|seminar|thuyết trình|khóa học|lớp học)/.test(normalized)) {
+    return "workshop";
+  }
+
+  if (/(cộng đồng|gây quỹ|chiến dịch|hiến máu|nhặt rác|môi trường)/.test(normalized)) {
+    return "community";
+  }
+
+  return "generic";
+}
+
+function buildTaskTemplateByContext(prompt: string): string[] {
+  const contextKind = detectContextKind(prompt);
+
+  if (contextKind === "charity") {
     return [
       "Khảo sát trước điểm phát cơm, chốt sức chứa và khung giờ phát suất trước 16:00, gửi pin map + quy định địa phương vào nhóm",
       "Mua nguyên liệu nấu cơm chay theo định lượng tối thiểu 1 suất/người + 10% dự phòng trước 08:00 ngày nấu, gửi hóa đơn",
@@ -165,7 +218,7 @@ function buildTaskTemplateByContext(prompt: string): string[] {
     ];
   }
 
-  if (/(chia tay đồng nghiệp|tiệc chia tay|farewell|tạm biệt đồng nghiệp|offboarding)/.test(normalized)) {
+  if (contextKind === "farewell") {
     return [
       "Chốt concept màu và in 2 backdrop chữ cho tiệc chia tay trước 18:00 hôm trước, gửi mockup đã duyệt vào nhóm",
       "Đặt combo finger food + 2 loại nước uống đủ số người trước 10:00 ngày tổ chức, gửi xác nhận đơn hàng và giờ giao",
@@ -174,7 +227,7 @@ function buildTaskTemplateByContext(prompt: string): string[] {
     ];
   }
 
-  if (/(tại nhà|ở nhà|home party|bbq tại nhà|nấu ăn tại nhà)/.test(normalized)) {
+  if (contextKind === "home-party") {
     return [
       "Lập danh sách nguyên liệu chi tiết theo món và đặt mua trước 17:00, gửi hóa đơn dự kiến cho nhóm",
       "Setup khu vực ăn uống gồm bàn ghế, đèn dây và loa mini trước giờ đón khách 90 phút, gửi ảnh hoàn thiện",
@@ -183,7 +236,7 @@ function buildTaskTemplateByContext(prompt: string): string[] {
     ];
   }
 
-  if (/(đi rừng|trek|camping|cắm trại|leo núi|sinh tồn)/.test(normalized)) {
+  if (contextKind === "outdoor") {
     return [
       "Kiểm tra đủ bộ sinh tồn (dao đa năng, dây dù 20m, đèn pin, pin dự phòng) trước 20:00 hôm trước, chụp ảnh từng món",
       "Chuẩn bị túi y tế gồm thuốc sát trùng, băng gạc, thuốc côn trùng và hướng dẫn sơ cứu, bàn giao cho trưởng nhóm trước khi đi",
@@ -192,16 +245,43 @@ function buildTaskTemplateByContext(prompt: string): string[] {
     ];
   }
 
+  if (contextKind === "workshop") {
+    return [
+      "Khóa timeline workshop theo block nội dung 15-20 phút trước 20:00 hôm trước, gửi agenda đã chốt cho toàn đội",
+      "Chuẩn bị slide, micro và bộ tài liệu in cho người tham dự trước giờ check-in 90 phút, test trình chiếu đầy đủ",
+      "Bố trí bàn check-in và QR điểm danh, cập nhật danh sách tham dự theo thời gian thực vào sheet chung",
+      "Tổng hợp feedback sau workshop trong 24 giờ và gửi báo cáo cải tiến phiên tiếp theo"
+    ];
+  }
+
+  if (contextKind === "celebration") {
+    return [
+      "Chốt concept trang trí theo chủ đề sự kiện trước 18:00 hôm trước, gửi moodboard + danh sách vật tư",
+      "Đặt menu đồ ăn/đồ uống đúng ngân sách trước 10:00 ngày tổ chức, lưu xác nhận đơn và giờ giao",
+      "Soạn timeline chương trình gồm mở đầu, trò chơi/hoạt động chính, kết thúc; bàn giao MC trước giờ diễn",
+      "Chuẩn bị phương án dọn dẹp và hoàn trả mặt bằng trong 60 phút sau sự kiện, phân người phụ trách từng khu"
+    ];
+  }
+
+  if (contextKind === "community") {
+    return [
+      "Xác định mục tiêu chiến dịch cộng đồng và chỉ số đo lường trước ngày triển khai 2 ngày, gửi bản tóm tắt cho đội",
+      "Chốt điểm tập kết, phân ca nhân sự hiện trường và phương án xử lý sự cố trước giờ bắt đầu 12 tiếng",
+      "Chuẩn bị nội dung truyền thông và lịch đăng bài theo mốc thời gian, kiểm tra thông điệp thống nhất",
+      "Tổng hợp kết quả chiến dịch (số người tham gia, nguồn lực huy động, ảnh minh chứng) trong 24 giờ sau sự kiện"
+    ];
+  }
+
   return [
-    "Chốt danh sách vật dụng cá nhân + đồ dùng chung theo số người trước 19:00 hôm trước, gửi checklist đã tick đầy đủ",
-    "Xác định điểm hẹn, phương tiện và timeline di chuyển chi tiết trước 18:00, gửi pin map + số hotline nhóm",
-    "Đặt thực phẩm, đồ uống và vật dụng ăn uống theo ngân sách đã thống nhất, gửi hóa đơn tạm tính trước khi thanh toán",
-    "Chuẩn bị phương án an toàn gồm y tế cơ bản, thời tiết và liên hệ khẩn cấp, bàn giao bản tóm tắt 1 trang cho nhóm"
+    `Xác định mục tiêu cụ thể của sự kiện "${prompt.slice(0, 60)}" và chốt tiêu chí hoàn thành trước 20:00 hôm trước, gửi bản tóm tắt vào nhóm`,
+    "Phân rã đầu việc theo 4 mảng (nội dung, hậu cần, truyền thông, kiểm soát chất lượng) và gán người phụ trách rõ ràng trước khi triển khai",
+    "Thiết lập mốc kiểm tra tiến độ theo giờ trong ngày diễn ra sự kiện, cập nhật trạng thái bằng checklist có minh chứng",
+    "Tổng hợp kết quả cuối sự kiện gồm mục tiêu đạt/chưa đạt, chi phí và bài học cải tiến, gửi báo cáo trong 24 giờ"
   ];
 }
 
 function buildRoleTaskBank(prompt: string): Record<string, string[]> {
-  const normalized = prompt.toLowerCase();
+  const contextKind = detectContextKind(prompt);
 
   const commonRoleTaskBank: Record<string, string[]> = {
     "Hậu cần": [
@@ -233,10 +313,76 @@ function buildRoleTaskBank(prompt: string): Record<string, string[]> {
       "Điều hành briefing 15 phút trước giờ bắt đầu để chốt phân vai lần cuối",
       "Theo dõi điểm nghẽn tại hiện trường và điều chỉnh nhân sự theo thời gian thực",
       "Tổng hợp biên bản kết thúc và gửi nhóm ngay sau khi thu dọn"
+    ],
+    "Nội dung": [
+      "Soạn kịch bản nội dung chính theo từng phân đoạn và chốt bản cuối trước 20:00 hôm trước",
+      "Chuẩn bị tài liệu trình bày/tài liệu phát tay đúng số lượng người tham gia trước giờ bắt đầu 90 phút",
+      "Điều phối phần trình bày theo timeline, theo dõi thời lượng thực tế và báo điều chỉnh khi lệch mốc",
+      "Tổng hợp phản hồi về chất lượng nội dung và đề xuất chỉnh sửa cho lần tổ chức tiếp theo"
+    ],
+    "Truyền thông": [
+      "Lập lịch truyền thông trước/trong/sau sự kiện với nội dung cụ thể từng mốc giờ, gửi plan cho nhóm duyệt",
+      "Thiết kế ấn phẩm truyền thông chủ đạo (poster/banner/caption) và chốt phiên bản dùng chính thức",
+      "Cập nhật hình ảnh/video diễn biến tại hiện trường theo timeline, lưu thư mục minh chứng có cấu trúc",
+      "Báo cáo hiệu quả truyền thông sau sự kiện bằng số liệu tiếp cận/tương tác và đề xuất cải tiến"
+    ],
+    "Hậu cần phòng": [
+      "Kiểm tra phòng ốc, chỗ ngồi, máy chiếu, âm thanh trước giờ bắt đầu 120 phút và chạy thử toàn bộ",
+      "Bố trí bàn check-in, bảng tên, tài liệu theo danh sách tham dự trước giờ mở cửa 45 phút",
+      "Chuẩn bị vật tư dự phòng (pin, dây nối, bút, giấy) và phân công người xử lý sự cố tại chỗ",
+      "Chốt quy trình trả phòng/thu dọn sau sự kiện và gửi checklist hoàn tất cho nhóm"
+    ],
+    "Tiếp đón người tham dự": [
+      "Xác nhận danh sách tham dự và nhắc lịch trước sự kiện 24 giờ qua email/tin nhắn",
+      "Tổ chức đón khách tại điểm check-in, hướng dẫn chỗ ngồi và hỗ trợ thông tin theo từng nhóm",
+      "Tiếp nhận câu hỏi/phản hồi trong sự kiện và chuyển đúng đầu mối xử lý theo SLA đã chốt",
+      "Tổng hợp tỷ lệ tham dự thực tế và lý do vắng mặt để tối ưu cho lần tổ chức sau"
+    ],
+    "Điều phối cộng đồng": [
+      "Chốt mục tiêu chiến dịch cộng đồng theo chỉ số đo lường và timeline triển khai rõ ràng trước ngày diễn ra",
+      "Phân ca đội hiện trường và thiết lập kênh liên lạc khẩn cấp cho từng ca trước giờ tập trung",
+      "Theo dõi tiến độ hiện trường theo mốc giờ và xử lý điểm nghẽn ngay khi phát sinh",
+      "Tổng hợp báo cáo tác động cộng đồng sau chương trình kèm số liệu và minh chứng"
+    ],
+    "Nguồn lực": [
+      "Lập danh sách nguồn lực cần huy động (tiền, hiện vật, nhân sự) và phân bổ chỉ tiêu theo từng đầu mối",
+      "Theo dõi cam kết đóng góp theo ngày và cập nhật dashboard nguồn lực trước thời hạn chốt",
+      "Đối soát nguồn lực nhận thực tế với kế hoạch, cảnh báo thiếu hụt để kích hoạt phương án bù",
+      "Công khai bảng tổng kết nguồn lực minh bạch sau sự kiện và lưu chứng từ đối chiếu"
+    ],
+    "Vận hành hiện trường": [
+      "Khảo sát hiện trường trước sự kiện và xác định các điểm rủi ro vận hành cần kiểm soát",
+      "Thiết lập sơ đồ luồng người/luồng vật tư và phân công người phụ trách từng điểm nóng",
+      "Giám sát vận hành tại chỗ theo checklist theo giờ, cập nhật trạng thái liên tục cho điều phối",
+      "Đóng hiện trường theo quy trình bàn giao và gửi biên bản hoàn tất ngay sau chương trình"
+    ],
+    "Điều phối tổng": [
+      "Bóc tách mục tiêu sự kiện thành đầu việc có deadline, giao người phụ trách và người dự phòng",
+      "Điều phối cuộc họp kick-off 20 phút để chốt phạm vi, KPI và cách cập nhật tiến độ",
+      "Theo dõi tiến độ các nhánh công việc theo mốc giờ và xử lý xung đột nguồn lực khi phát sinh",
+      "Tổng kết cuối sự kiện bằng báo cáo ngắn: kết quả, chi phí, vấn đề, hành động cải tiến"
+    ],
+    "Nội dung chính": [
+      "Thiết kế luồng nội dung chính theo mục tiêu sự kiện và chốt phiên bản dùng thật trước giờ diễn ra 12 tiếng",
+      "Chuẩn bị bộ tài liệu minh chứng cho từng điểm nội dung để đội vận hành triển khai đúng",
+      "Giám sát chất lượng nội dung trong thời gian chạy sự kiện và chỉnh sửa trực tiếp khi cần",
+      "Tổng hợp phản hồi người tham gia về nội dung để cải tiến bản kế tiếp"
+    ],
+    "Hậu cần thực thi": [
+      "Lập danh sách vật tư cần thiết và chốt lịch nhận hàng/kiểm hàng theo mốc giờ cụ thể",
+      "Bố trí khu vực, thiết bị, nhân lực vận hành tại chỗ đúng trước giờ bắt đầu tối thiểu 90 phút",
+      "Theo dõi tiêu hao vật tư theo thời gian thực và bổ sung khi xuống ngưỡng cảnh báo",
+      "Đối soát vật tư sau sự kiện và bàn giao biên bản tổng kết hậu cần"
+    ],
+    "Giám sát chất lượng": [
+      "Thiết lập checklist tiêu chuẩn chất lượng cho từng hạng mục trước ngày triển khai",
+      "Kiểm tra ngẫu nhiên các đầu việc trong sự kiện và ghi nhận sai lệch ngay khi phát hiện",
+      "Phát hành cảnh báo chất lượng kèm phương án khắc phục cho đội phụ trách trong vòng 15 phút",
+      "Tổng hợp báo cáo chất lượng cuối sự kiện với điểm mạnh/yếu và đề xuất cải tiến cụ thể"
     ]
   };
 
-  if (/(từ thiện|quyên góp|vô gia cư|phát cơm|suất ăn miễn phí|thiện nguyện)/.test(normalized)) {
+  if (contextKind === "charity") {
     return {
       ...commonRoleTaskBank,
       "Tiếp nhận nhu cầu & điểm phát": [
@@ -272,7 +418,7 @@ function buildRoleTaskBank(prompt: string): Record<string, string[]> {
     };
   }
 
-  if (/(chia tay đồng nghiệp|tiệc chia tay|farewell|tạm biệt đồng nghiệp|offboarding)/.test(normalized)) {
+  if (contextKind === "farewell") {
     return {
       ...commonRoleTaskBank,
       "Trang trí không gian": [
@@ -305,6 +451,46 @@ function buildRoleTaskBank(prompt: string): Record<string, string[]> {
         "Chuẩn bị phương án dự phòng điện/âm thanh và bộ dụng cụ sửa lỗi nhanh tại chỗ trước giờ chạy thử",
         "Lập kế hoạch dọn dẹp sau tiệc theo 3 chặng (thu gom, phân loại rác, trả mặt bằng), chốt người phụ trách từng chặng"
       ]
+    };
+  }
+
+  if (contextKind === "workshop") {
+    return {
+      ...commonRoleTaskBank,
+      "Nội dung": commonRoleTaskBank["Nội dung"],
+      "Truyền thông": commonRoleTaskBank["Truyền thông"],
+      "Hậu cần phòng": commonRoleTaskBank["Hậu cần phòng"],
+      "Tiếp đón người tham dự": commonRoleTaskBank["Tiếp đón người tham dự"]
+    };
+  }
+
+  if (contextKind === "community") {
+    return {
+      ...commonRoleTaskBank,
+      "Điều phối cộng đồng": commonRoleTaskBank["Điều phối cộng đồng"],
+      "Nguồn lực": commonRoleTaskBank["Nguồn lực"],
+      "Truyền thông": commonRoleTaskBank["Truyền thông"],
+      "Vận hành hiện trường": commonRoleTaskBank["Vận hành hiện trường"]
+    };
+  }
+
+  if (contextKind === "celebration") {
+    return {
+      ...commonRoleTaskBank,
+      "Trang trí": [
+        "Dựng concept trang trí theo chủ đề và hoàn tất setup trước giờ đón khách 90 phút",
+        "Chuẩn bị phụ kiện trang trí (bóng bay, standee, photo corner) và kiểm tra độ ổn định trước khi mở cửa",
+        "Bố trí khu vực check-in + chụp ảnh và bàn giao danh mục vật phẩm cho người điều phối",
+        "Thu hồi vật phẩm trang trí sau sự kiện theo checklist để tránh thất lạc"
+      ],
+      "Chương trình": [
+        "Soạn timeline chương trình theo block giờ và chốt thứ tự hoạt động trước 14:00 ngày tổ chức",
+        "Chuẩn bị kịch bản MC/điều phối viên và chạy thử tổng duyệt trước giờ bắt đầu 2 tiếng",
+        "Theo dõi thời lượng từng mục và điều chỉnh linh hoạt để đảm bảo kết thúc đúng giờ",
+        "Tổng hợp highlights chương trình và gửi recap cho nhóm trong 12 giờ"
+      ],
+      "Hậu cần": commonRoleTaskBank["Hậu cần"],
+      "Ẩm thực": commonRoleTaskBank["Ẩm thực"]
     };
   }
 

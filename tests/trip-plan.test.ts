@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildMockTripPlan,
   createTripPlanSchemaForMembers,
+  inferContext,
   normalizeTripPlan,
   parseMemberNames
 } from "../app/trip-plan";
@@ -130,6 +131,9 @@ describe("normalizeTripPlan", () => {
     expect(plan.contextAnalysis.toLowerCase()).toContain("thiện nguyện");
     expect(plan.contextAnalysis.toLowerCase()).toContain("người khó khăn");
     expect(plan.contextAnalysis.toLowerCase()).not.toContain("chuyến đi nhóm tổng quát");
+
+    const roles = plan.assignments.map((item) => item.role.toLowerCase()).join(" ");
+    expect(roles).toMatch(/điểm phát|bếp chay|phân phát|nguồn lực|an toàn/);
   });
 
   it("avoids repeated generic tasks for random event prompts", () => {
@@ -141,5 +145,11 @@ describe("normalizeTripPlan", () => {
 
     const joinedTasks = allTasks.join(" ").toLowerCase();
     expect(joinedTasks).not.toMatch(/chuẩn bị checklist đồ cá nhân|xác nhận phương án di chuyển/);
+  });
+
+  it("infers non-generic context analysis for arbitrary events", () => {
+    const context = inferContext("Tổ chức ngày hội đổi sách cũ cho sinh viên ở ký túc xá");
+    expect(context.analysis.toLowerCase()).toContain("sự kiện");
+    expect(context.analysis.toLowerCase()).not.toContain("chuyến đi nhóm tổng quát");
   });
 });
