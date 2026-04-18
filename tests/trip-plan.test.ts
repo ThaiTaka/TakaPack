@@ -59,4 +59,27 @@ describe("normalizeTripPlan", () => {
       expect(assignment.tasks.length).toBeLessThanOrEqual(4);
     }
   });
+
+  it("enriches tasks with deadline or deliverable details", () => {
+    const members = ["Taka"];
+    const normalized = normalizeTripPlan(
+      {
+        eventName: "BBQ sân thượng",
+        contextAnalysis: "Tại nhà",
+        assignments: [
+          {
+            assigneeName: "Taka",
+            role: "Ẩm thực",
+            tasks: ["Mua nước uống", "Sơ chế thịt nướng", "Chuẩn bị đá lạnh"]
+          }
+        ]
+      },
+      members,
+      "BBQ tại nhà"
+    );
+
+    const tasks = normalized.assignments[0].tasks.join(" ").toLowerCase();
+    expect(tasks).toContain("trước");
+    expect(/gửi|báo|checklist|xác nhận/.test(tasks)).toBe(true);
+  });
 });

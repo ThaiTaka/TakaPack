@@ -44,7 +44,10 @@ export const TRIP_PLANNER_SYSTEM_PROMPT = [
   "Bạn là chuyên gia điều phối chuyến đi nhóm và logistics thực địa.",
   "Bắt buộc phân tích ngữ cảnh sự kiện trước khi chia việc (ví dụ: tại nhà thì không có lều trại/đi rừng; đi rừng phải có an toàn, y tế, định hướng, sinh tồn).",
   "Chỉ phân công đúng cho danh sách thành viên được cung cấp, không thêm người mới.",
-  "Mỗi thành viên phải có vai trò rõ ràng và CHÍNH XÁC 3-4 tasks ngắn gọn, hành động cụ thể, không lặp lại vô nghĩa.",
+  "Mỗi thành viên phải có vai trò rõ ràng và CHÍNH XÁC 3-4 tasks chi tiết.",
+  "Mỗi task phải chứa: (1) hành động cụ thể, (2) vật dụng/hạng mục cần chuẩn bị, (3) mốc thời gian hoặc kết quả bàn giao đo được.",
+  "Không dùng task chung chung kiểu 'chuẩn bị đồ', 'check lại', 'hỗ trợ team'.",
+  "Ưu tiên câu task có cấu trúc rõ: 'Làm gì + cho hạng mục nào + trước thời điểm nào + output mong đợi'.",
   "Luôn trả về JSON nghiêm ngặt đúng schema, không markdown, không giải thích ngoài JSON."
 ].join(" ");
 
@@ -53,6 +56,8 @@ export function buildTripPlannerPrompt(prompt: string, memberNames: string[]): s
     `Yêu cầu chuyến đi: ${prompt}`,
     `Danh sách thành viên (chỉ dùng các tên này): ${memberNames.join(", ")}`,
     "Ràng buộc: mỗi thành viên có 3-4 công việc; role và task phải phù hợp bối cảnh thực tế.",
+    "Task phải đủ chi tiết theo mẫu: Hành động + Hạng mục + Mốc thời gian/Kết quả.",
+    "Ví dụ tốt: 'Mua đủ 6L nước uống và 2 túi đá trước 17:00, chụp hóa đơn gửi nhóm'.",
     "Ưu tiên chia đều khối lượng công việc và tránh nhiệm vụ trùng lặp không cần thiết.",
     "Trả JSON đúng schema duy nhất."
   ].join("\n");
@@ -153,6 +158,50 @@ function enforceThreeToFourTasks(tasks: string[], fallbackPool: string[]): strin
   return next;
 }
 
+function enrichTaskDetail(task: string, assigneeName: string, role: string, prompt: string): string {
+  const baseTask = task.trim();
+  if (!baseTask) {
+    return `${assigneeName} hoàn tất checklist theo vai trò ${role} trước giờ tập trung và gửi xác nhận vào nhóm chat.`;
+  }
+
+  const normalized = baseTask.toLowerCase();
+  const hasDeadline = /trước|trong vòng|trước giờ|\d{1,2}:\d{2}|ngày|đêm|sáng|chiều|tối/.test(
+    normalized
+  );
+  const hasDeliverable = /gửi|báo|xác nhận|checklist|danh sách|hóa đơn|ảnh|bàn giao/.test(normalized);
+
+  if (hasDeadline && hasDeliverable && baseTask.length >= 45) {
+    return baseTask;
+  }
+
+  const isHome = /(tại nhà|ở nhà|home party|bbq tại nhà|nấu ăn tại nhà)/.test(
+    prompt.toLowerCase()
+  );
+  const isForest = /(đi rừng|trek|camping|cắm trại|leo núi|sinh tồn)/.test(
+    prompt.toLowerCase()
+  );
+
+  const deadline = isForest
+    ? "trước 20:00 tối trước ngày khởi hành"
+    : "trước giờ tập trung 1 ngày";
+  const output = isHome
+    ? "gửi checklist + ảnh setup vào nhóm"
+    : isForest
+      ? "báo cáo số lượng vật dụng và trạng thái an toàn vào nhóm"
+      : "gửi checklist xác nhận hoàn tất vào nhóm";
+
+  return `${baseTask} (${assigneeName} phụ trách vai trò ${role}, ${deadline}, ${output}).`;
+}
+
+function enrichAssignmentTasks(
+  tasks: string[],
+  assigneeName: string,
+  role: string,
+  prompt: string
+): string[] {
+  return tasks.map((task) => enrichTaskDetail(task, assigneeName, role, prompt));
+}
+
 export function normalizeTripPlan(object: TripPlan, memberNames: string[], prompt: string): TripPlan {
   const fallbackTasks = buildTaskTemplateByContext(prompt);
   const roleHints = inferContext(prompt).roleHints;
@@ -166,7 +215,12 @@ export function normalizeTripPlan(object: TripPlan, memberNames: string[], promp
     return {
       assigneeName: name,
       role: fromAi?.role?.trim() || `${roleHints[index % roleHints.length]} Lead`,
-      tasks: enforceThreeToFourTasks(fromAi?.tasks ?? [], fallbackTasks)
+      tasks: enrichAssignmentTasks(
+        enforceThreeToFourTasks(fromAi?.tasks ?? [], fallbackTasks),
+        name,
+        fromAi?.role?.trim() || `${roleHints[index % roleHints.length]} Lead`,
+        prompt
+      )
     };
   });
 
@@ -184,8 +238,11 @@ export function buildMockTripPlan(prompt: string, memberNames: string[]): TripPl
   const assignments = memberNames.map((memberName, index) => ({
     assigneeName: memberName,
     role: context.roleHints[index % context.roleHints.length],
-    tasks: fallbackTasks.map(
-      (task) => `${task}${index % 2 === 0 ? "" : " (phụ trách chính)"}`
+    tasks: enrichAssignmentTasks(
+      fallbackTasks.map((task) => `${task}${index % 2 === 0 ? "" : " (phụ trách chính)"}`),
+      memberName,
+      context.roleHints[index % context.roleHints.length],
+      prompt
     )
   }));
 
